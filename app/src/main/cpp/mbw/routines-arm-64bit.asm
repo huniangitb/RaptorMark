@@ -3,7 +3,7 @@
 #
 # 64-bit ARM (aarch64) routines.
 #
-# Copyright (C) 2010-2021 by Zack T Smith.
+# Copyright (C) 2010-2023 by Zack T Smith.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,11 +22,11 @@
 # The author may be reached at 1 at zsmith.co.
 #=============================================================================
 
-# Version 0.10 for the Raspberry pi.
+# Version 0.11 for Raspberry Pi and Apple Silicon
 
-# 64 bit ISA, application processor
 .arch armv8-a
 
+# For Linux:
 .global Writer
 .global WriterVector
 .global RandomWriter
@@ -41,6 +41,10 @@
 .global StackWriter
 .global IncrementRegisters
 .global IncrementStack
+.global CopyWithMainRegisters
+.global CopyWithVector128Registers
+.global Reader_nontemporal
+.global Writer_nontemporal
 
 # For MacOS:
 .global _Writer
@@ -57,10 +61,10 @@
 .global _StackWriter
 .global _IncrementRegisters
 .global _IncrementStack
-
-.section .note.GNU-stack 
-
-.section code
+.global _CopyWithMainRegisters
+.global _CopyWithVector128Registers
+.global _Reader_nontemporal
+.global _Writer_nontemporal
 
 .text
 
@@ -80,7 +84,7 @@ _Writer:
 
 	lsr	x1, x1, #4
 	lsl	x1, x1, #4
-	
+
 	mov	x4, x0
 	mov	x5, x1
 	mov	x6, x3
@@ -118,6 +122,68 @@ _Writer:
 	bne	.L0
 
 	ldp	x5, x6, [sp], 16
+
+	dsb	st
+	ret
+
+#-----------------------------------------------------------------------------
+# Name: 	Writer_nontemporal
+# Purpose:	Performs sequential write into memory, w/nontemporal hint.
+# Params:
+#	x0 = address, 16-byte aligned
+#	x1 = length, multiple of 256
+#	x2 = count
+# 	x3 = value to write
+#-----------------------------------------------------------------------------
+.align 4
+Writer_nontemporal:
+_Writer_nontemporal:
+	stp	x5, x6, [sp, -16]!
+
+	lsr	x1, x1, #4
+	lsl	x1, x1, #4
+
+	mov	x4, x0
+	mov	x5, x1
+	mov	x6, x3
+
+.Lstnp0:
+	mov	x0, x4
+	mov	x1, x5
+
+.Lstnp1:
+	## Do 16 transfers, 16 bytes each = 256 bytes total.
+	stnp	x3, x6, [x0]
+	stnp	x3, x6, [x0, #16]
+	stnp	x3, x6, [x0, #32]
+	stnp	x3, x6, [x0, #48]
+
+	stnp	x3, x6, [x0, #64]
+	stnp	x3, x6, [x0, #80]
+	stnp	x3, x6, [x0, #96]
+	stnp	x3, x6, [x0, #112]
+
+	stnp	x3, x6, [x0, #128]
+	stnp	x3, x6, [x0, #144]
+	stnp	x3, x6, [x0, #160]
+	stnp	x3, x6, [x0, #176]
+
+	stnp	x3, x6, [x0, #192]
+	stnp	x3, x6, [x0, #208]
+	stnp	x3, x6, [x0, #224]
+	stnp	x3, x6, [x0, #240]
+
+	add	x0, x0, #256
+
+	subs	x1, x1, 256
+	bne	.Lstnp1
+
+	subs	x2, x2, 1
+	bne	.Lstnp0
+
+	ldp	x5, x6, [sp], 16
+
+	dsb	st
 	ret
 
 #-----------------------------------------------------------------------------
@@ -148,18 +214,19 @@ _WriterVector:
 	stp	q2, q3, [x0], 32
 	stp	q4, q5, [x0], 32
 	stp	q6, q7, [x0], 32
-	
+
 	stp	q0, q1, [x0], 32
 	stp	q2, q3, [x0], 32
 	stp	q4, q5, [x0], 32
 	stp	q6, q7, [x0], 32
-	
+
 	subs	x1, x1, 256
 	bne	.L1v
 
 	subs	x2, x2, 1
 	bne	.L0v
 
+	dsb	st
 	ret
 
 #-----------------------------------------------------------------------------
@@ -173,6 +240,9 @@ _WriterVector:
 .align 4
 Reader:
 _Reader:
+	stp	x1, x2, [sp, -16]!
+	stp	x3, x4, [sp, -16]!
+	stp	x5, x6, [sp, -16]!
 	stp	x7, x8, [sp, -16]!
 	stp	x9, x10, [sp, -16]!
 	stp	x11, x12, [sp, -16]!
@@ -201,7 +271,7 @@ _Reader:
 	ldp	x11, x12, [x0], 16
 	ldp	x9, x8, [x0], 16
 
-	ldp	x11, x12, [x0], 16
+	ldp	x11, x3, [x0], 16
 	ldp	x8, x10, [x0], 16
 	ldp	x7, x9, [x0], 16
 	ldp	x3, x6, [x0], 16
@@ -217,9 +287,84 @@ _Reader:
 	subs	x2, x2, #1
 	bne	.L2
 
-	ldp	x11, x12, [sp], 16
-	ldp	x9, x10, [sp], 16
-	ldp	x7, x8, [sp], 16
+	ldp	x12, x11, [sp], 16
+	ldp	x10, x9, [sp], 16
+	ldp	x8, x7, [sp], 16
+	ldp	x6, x5, [sp], 16
+	ldp	x4, x3, [sp], 16
+	ldp	x2, x1, [sp], 16
+
+	dsb	ld
+	ret
+
+#-----------------------------------------------------------------------------
+# Name: 	Reader_nontemporal
+# Purpose:	Performs sequential reads from memory, with nontemporal hint.
+# Params:
+#	x0 = address
+#	x1 = length, multiple of 256
+#	x2 = count
+#-----------------------------------------------------------------------------
+.align 4
+Reader_nontemporal:
+_Reader_nontemporal:
+	stp	x1, x2, [sp, -16]!
+	stp	x3, x4, [sp, -16]!
+	stp	x5, x6, [sp, -16]!
+	stp	x7, x8, [sp, -16]!
+	stp	x9, x10, [sp, -16]!
+	stp	x11, x12, [sp, -16]!
+
+# x3 = temp
+
+	lsr	x1, x1, 5
+	lsl	x1, x1, 5
+
+	mov	x4, x0
+	mov	x5, x1
+
+.Lldnp2:
+	mov	x0, x4
+	mov	x1, x5
+
+.Lldnp3:
+	## 32 transfers, 8 bytes each = 256 bytes total.
+	ldnp	x3, x6, [x0]
+	ldnp	x7, x8, [x0, #16]
+	ldnp	x9, x10, [x0, #32]
+	ldnp	x11, x12, [x0, #48]
+
+	ldnp	x7, x10, [x0, #64]
+	ldnp	x3, x6, [x0, #80]
+	ldnp	x11, x12, [x0, #96]
+	ldnp	x9, x8, [x0, #112]
+
+	ldnp	x11, x3, [x0, #128]
+	ldnp	x8, x10, [x0, #144]
+	ldnp	x7, x9, [x0, #160]
+	ldnp	x3, x6, [x0, #176]
+
+	ldnp	x8, x6, [x0, #192]
+	ldnp	x9, x11, [x0, #208]
+	ldnp	x7, x3, [x0, #224]
+	ldnp	x10, x12, [x0, #240]
+
+	add	x0, x0, #256
+
+	subs	x1, x1, #256
+	bne	.Lldnp3
+
+	subs	x2, x2, #1
+	bne	.Lldnp2
+
+	ldp	x12, x11, [sp], 16
+	ldp	x10, x9, [sp], 16
+	ldp	x8, x7, [sp], 16
+	ldp	x6, x5, [sp], 16
+	ldp	x4, x3, [sp], 16
+	ldp	x2, x1, [sp], 16
+
+	dsb	ld
 	ret
 
 #-----------------------------------------------------------------------------
@@ -247,16 +392,16 @@ _ReaderVector:
 
 .L3v:
 	## 16 transfers, 16 bytes each = 256 bytes total.
-	stp	q0, q1, [x0], 32
-	stp	q2, q3, [x0], 32
-	stp	q4, q5, [x0], 32
-	stp	q6, q7, [x0], 32
-	
-	stp	q0, q1, [x0], 32
-	stp	q2, q3, [x0], 32
-	stp	q4, q5, [x0], 32
-	stp	q6, q7, [x0], 32
-	
+	ldp	q0, q1, [x0], 32
+	ldp	q2, q3, [x0], 32
+	ldp	q4, q5, [x0], 32
+	ldp	q6, q7, [x0], 32
+
+	ldp	q0, q1, [x0], 32
+	ldp	q2, q3, [x0], 32
+	ldp	q4, q5, [x0], 32
+	ldp	q6, q7, [x0], 32
+
 	subs	x1, x1, 256
 	bne	.L3v
 
@@ -264,6 +409,8 @@ _ReaderVector:
 	bne	.L2v
 
 	ldp	x5, x6, [sp], 16
+
+	dsb	ld
 	ret
 
 #-----------------------------------------------------------------------------
@@ -327,6 +474,7 @@ _RandomWriter:
 	subs	x2, x2, 1
 	bne	.L4
 
+	dsb	st
 	ret
 
 #-----------------------------------------------------------------------------
@@ -376,6 +524,8 @@ _RandomWriterVector:
 	bne	.L4v
 
 	ldp	x4, x5, [sp], 16
+
+	dsb	st
 	ret
 
 #-----------------------------------------------------------------------------
@@ -440,6 +590,8 @@ _RandomReader:
 	bne	.L6
 
 	ldp	x4, x5, [sp], 16
+
+	dsb	ld
 	ret
 
 #-----------------------------------------------------------------------------
@@ -454,6 +606,7 @@ _RandomReader:
 RandomReaderVector:
 _RandomReaderVector:
 	stp	x4, x5, [sp, -16]!
+	str	q0, [sp, -16]!
 
 .L6v:
 	mov	x5, xzr
@@ -487,7 +640,10 @@ _RandomReaderVector:
 	subs	x2, x2, 1
 	bne	.L6v
 
+	ldr	q0, [sp], 16
 	ldp	x4, x5, [sp], 16
+
+	dsb	ld
 	ret
 
 #-----------------------------------------------------------------------------
@@ -501,7 +657,40 @@ RegisterToRegister:
 _RegisterToRegister:
 
 .L8:
-	# Do 32 transfers (8 bytes each)
+	# Do 64 transfers
+	mov	x1, x2
+	mov	x1, x3
+	mov	x1, x4
+	mov	x1, x5
+	mov	x1, x6
+	mov	x1, x7
+	mov	x1, x8
+	mov	x1, x9
+	mov	x2, x1
+	mov	x2, x3
+	mov	x2, x4
+	mov	x2, x5
+	mov	x2, x6
+	mov	x2, x7
+	mov	x2, x8
+	mov	x2, x9
+	mov	x1, x2
+	mov	x1, x3
+	mov	x1, x4
+	mov	x1, x5
+	mov	x1, x6
+	mov	x1, x7
+	mov	x1, x8
+	mov	x1, x9
+	mov	x1, x2
+	mov	x1, x3
+	mov	x1, x4
+	mov	x1, x5
+	mov	x1, x6
+	mov	x1, x7
+	mov	x1, x8
+	mov	x1, x9
+
 	mov	x1, x2
 	mov	x1, x3
 	mov	x1, x4
@@ -554,78 +743,42 @@ _VectorToVector128:
 
 .L8v:
 	# Do 32 transfers (16 bytes each)
-	ins v0.d[0], v1.d[0]
-	ins v0.d[1], v2.d[1]
-	ins v2.d[0], v3.d[0]
-	ins v2.d[1], v0.d[1]
-	ins v0.d[0], v1.d[0]
-	ins v0.d[1], v2.d[1]
-	ins v3.d[0], v2.d[0]
-	ins v3.d[1], v0.d[1]
-	
-	ins v0.d[0], v1.d[0]
-	ins v0.d[1], v2.d[1]
-	ins v2.d[0], v3.d[0]
-	ins v2.d[1], v0.d[1]
-	ins v0.d[0], v1.d[0]
-	ins v0.d[1], v2.d[1]
-	ins v3.d[0], v2.d[0]
-	ins v3.d[1], v0.d[1]
-	
-	ins v0.d[0], v1.d[0]
-	ins v0.d[1], v2.d[1]
-	ins v2.d[0], v3.d[0]
-	ins v2.d[1], v0.d[1]
-	ins v0.d[0], v1.d[0]
-	ins v0.d[1], v2.d[1]
-	ins v3.d[0], v2.d[0]
-	ins v3.d[1], v0.d[1]
-	
-	ins v0.d[0], v1.d[0]
-	ins v0.d[1], v2.d[1]
-	ins v2.d[0], v3.d[0]
-	ins v2.d[1], v0.d[1]
-	ins v0.d[0], v1.d[0]
-	ins v0.d[1], v2.d[1]
-	ins v3.d[0], v2.d[0]
-	ins v3.d[1], v0.d[1]
-	
-	ins v0.d[0], v1.d[0]
-	ins v0.d[1], v2.d[1]
-	ins v2.d[0], v3.d[0]
-	ins v2.d[1], v0.d[1]
-	ins v0.d[0], v1.d[0]
-	ins v0.d[1], v2.d[1]
-	ins v3.d[0], v2.d[0]
-	ins v3.d[1], v0.d[1]
-	
-	ins v0.d[0], v1.d[0]
-	ins v0.d[1], v2.d[1]
-	ins v2.d[0], v3.d[0]
-	ins v2.d[1], v0.d[1]
-	ins v0.d[0], v1.d[0]
-	ins v0.d[1], v2.d[1]
-	ins v3.d[0], v2.d[0]
-	ins v3.d[1], v0.d[1]
-	
-	ins v0.d[0], v1.d[0]
-	ins v0.d[1], v2.d[1]
-	ins v2.d[0], v3.d[0]
-	ins v2.d[1], v0.d[1]
-	ins v0.d[0], v1.d[0]
-	ins v0.d[1], v2.d[1]
-	ins v3.d[0], v2.d[0]
-	ins v3.d[1], v0.d[1]
-	
-	ins v0.d[0], v1.d[0]
-	ins v0.d[1], v2.d[1]
-	ins v2.d[0], v3.d[0]
-	ins v2.d[1], v0.d[1]
-	ins v0.d[0], v1.d[0]
-	ins v0.d[1], v2.d[1]
-	ins v3.d[0], v2.d[0]
-	ins v3.d[1], v0.d[1]
-	
+	mov	v0.16b, v1.16b
+	mov	v7.16b, v2.16b
+	mov	v3.16b, v6.16b
+	mov	v4.16b, v0.16b
+	mov	v8.16b, v9.16b
+	mov	v2.16b, v4.16b
+	mov	v10.16b, v1.16b
+	mov	v1.16b, v2.16b
+
+	mov	v5.16b, v3.16b
+	mov	v7.16b, v2.16b
+	mov	v3.16b, v6.16b
+	mov	v4.16b, v5.16b
+	mov	v8.16b, v9.16b
+	mov	v2.16b, v4.16b
+	mov	v30.16b, v3.16b
+	mov	v3.16b, v2.16b
+
+	mov	v0.16b, v1.16b
+	mov	v7.16b, v2.16b
+	mov	v3.16b, v6.16b
+	mov	v4.16b, v0.16b
+	mov	v8.16b, v9.16b
+	mov	v2.16b, v4.16b
+	mov	v10.16b, v1.16b
+	mov	v1.16b, v2.16b
+
+	mov	v5.16b, v3.16b
+	mov	v7.16b, v2.16b
+	mov	v3.16b, v6.16b
+	mov	v4.16b, v5.16b
+	mov	v8.16b, v9.16b
+	mov	v2.16b, v4.16b
+	mov	v30.16b, v3.16b
+	mov	v3.16b, v2.16b
+
 	subs	x0, x0, 1
 	bne	.L8v
 
@@ -644,7 +797,43 @@ _StackReader:
 	sub	sp, sp, 64
 
 .L9:
-	# Do 32 transfers, 8 bytes each
+	# 64 transfers
+	ldr	x1, [sp]
+	ldr	x1, [sp, 8]
+	ldr	x1, [sp, 16]
+	ldr	x1, [sp, 24]
+	ldr	x1, [sp, 32]
+	ldr	x1, [sp, 40]
+	ldr	x1, [sp, 48]
+	ldr	x1, [sp, 56]
+
+	ldr	x1, [sp]
+	ldr	x1, [sp, 8]
+	ldr	x1, [sp, 16]
+	ldr	x1, [sp, 24]
+	ldr	x1, [sp, 32]
+	ldr	x1, [sp, 40]
+	ldr	x1, [sp, 48]
+	ldr	x1, [sp, 56]
+
+	ldr	x1, [sp]
+	ldr	x1, [sp, 8]
+	ldr	x1, [sp, 16]
+	ldr	x1, [sp, 24]
+	ldr	x1, [sp, 32]
+	ldr	x1, [sp, 40]
+	ldr	x1, [sp, 48]
+	ldr	x1, [sp, 56]
+
+	ldr	x1, [sp]
+	ldr	x1, [sp, 8]
+	ldr	x1, [sp, 16]
+	ldr	x1, [sp, 24]
+	ldr	x1, [sp, 32]
+	ldr	x1, [sp, 40]
+	ldr	x1, [sp, 48]
+	ldr	x1, [sp, 56]
+
 	ldr	x1, [sp]
 	ldr	x1, [sp, 8]
 	ldr	x1, [sp, 16]
@@ -686,6 +875,7 @@ _StackReader:
 
 	add	sp, sp, 64
 
+	dsb	ld
 	ret
 
 #-----------------------------------------------------------------------------
@@ -701,7 +891,43 @@ _StackWriter:
 	sub	sp, sp, 64
 
 .L10:
-	# Do 32 transfers, 8 bytes each
+	# Do 64 transfers
+	str	x1, [sp]
+	str	x1, [sp, 8]
+	str	x1, [sp, 16]
+	str	x1, [sp, 24]
+	str	x1, [sp, 32]
+	str	x1, [sp, 40]
+	str	x1, [sp, 48]
+	str	x1, [sp, 56]
+
+	str	x1, [sp]
+	str	x1, [sp, 8]
+	str	x1, [sp, 16]
+	str	x1, [sp, 24]
+	str	x1, [sp, 32]
+	str	x1, [sp, 40]
+	str	x1, [sp, 48]
+	str	x1, [sp, 56]
+
+	str	x1, [sp]
+	str	x1, [sp, 8]
+	str	x1, [sp, 16]
+	str	x1, [sp, 24]
+	str	x1, [sp, 32]
+	str	x1, [sp, 40]
+	str	x1, [sp, 48]
+	str	x1, [sp, 56]
+
+	str	x1, [sp]
+	str	x1, [sp, 8]
+	str	x1, [sp, 16]
+	str	x1, [sp, 24]
+	str	x1, [sp, 32]
+	str	x1, [sp, 40]
+	str	x1, [sp, 48]
+	str	x1, [sp, 56]
+
 	str	x1, [sp]
 	str	x1, [sp, 8]
 	str	x1, [sp, 16]
@@ -743,6 +969,7 @@ _StackWriter:
 
 	add	sp, sp, 64
 
+	dsb	st
 	ret
 
 #------------------------------------------------------------------------------
@@ -753,7 +980,7 @@ _StackWriter:
 .align 4
 IncrementRegisters:
 _IncrementRegisters:
-	
+
 .Li1:
 	# 32 operations
 	# Note, Rpi4 CPU can do two operations per cycle.
@@ -914,5 +1141,108 @@ _IncrementStack:
 	bne	.Lis1
 
 	add	sp, sp, 64
+
+	dsb	st
 	ret
 
+#-----------------------------------------------------------------------------
+# Name: 	CopyWithMainRegisters
+# Purpose:	Performs memory copy, as fast as possible.
+# Params:
+# 	x0 = pointer to destination array
+# 	x1 = pointer to source array
+# 	x2 = # of bytes (multiple of 256)
+# 	x3 = # loops to do
+#-----------------------------------------------------------------------------
+.align 4
+CopyWithMainRegisters:
+_CopyWithMainRegisters:
+	mov	x12, x0
+	mov	x13, x1
+	mov	x4, x2
+
+.Lcr0:
+	mov	x0, x12
+	mov	x1, x13
+	mov	x2, x4
+
+.Lcr1:
+	ldp	x5, x6, [x1], 16
+	ldp	x7, x8, [x1], 16
+	ldp	x9, x11, [x1], 16
+	ldp	x14, x15, [x1], 16
+
+	stp	x5, x6, [x0], 16
+	stp	x7, x8, [x0], 16
+	stp	x9, x11, [x0], 16
+	stp	x14, x15, [x0], 16
+
+	ldp	x5, x6, [x1], 16
+	ldp	x7, x8, [x1], 16
+	ldp	x9, x11, [x1], 16
+	ldp	x14, x15, [x1], 16
+
+	stp	x5, x6, [x0], 16
+	stp	x7, x8, [x0], 16
+	stp	x9, x11, [x0], 16
+	stp	x14, x15, [x0], 16
+
+	subs	x2, x2, 128
+	bne	.Lcr1
+
+	subs	x3, x3, 1
+	bne	.Lcr0
+
+	dsb	st
+	ret
+
+#-----------------------------------------------------------------------------
+# Name: 	CopyWithVector128Registers
+# Purpose:	Performs memory copy, as fast as possible.
+# Params:
+# 	x0 = pointer to destination array
+# 	x1 = pointer to source array
+# 	x2 = # of bytes (multiple of 256)
+# 	x3 = # loops to do
+#-----------------------------------------------------------------------------
+.align 4
+CopyWithVector128Registers:
+_CopyWithVector128Registers:
+	mov	x12, x0
+	mov	x13, x1
+	mov	x4, x2
+
+.Lcv128a:
+	mov	x0, x12
+	mov	x1, x13
+	mov	x2, x4
+
+.Lcv128b:
+	ldp	q0, q1, [x1], 32
+	ldp	q2, q3, [x1], 32
+	ldp	q4, q5, [x1], 32
+	ldp	q6, q7, [x1], 32
+
+	stp	q0, q1, [x0], 32
+	stp	q2, q3, [x0], 32
+	stp	q4, q5, [x0], 32
+	stp	q6, q7, [x0], 32
+
+	ldp	q0, q1, [x1], 32
+	ldp	q2, q3, [x1], 32
+	ldp	q4, q5, [x1], 32
+	ldp	q6, q7, [x1], 32
+
+	stp	q0, q1, [x0], 32
+	stp	q2, q3, [x0], 32
+	stp	q4, q5, [x0], 32
+	stp	q6, q7, [x0], 32
+
+	subs	x2, x2, 256
+	bne	.Lcv128b
+
+	subs	x3, x3, 1
+	bne	.Lcv128a
+
+	dsb	st
+	ret

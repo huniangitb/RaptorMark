@@ -23,6 +23,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <time.h>
+#include "routines.h"
 #include "Testing.h"
 
 #define REGISTER_TRANSFERS_COUNT 9997
@@ -286,56 +287,6 @@ long Testing_read(unsigned long size, TestingMode mode, bool random) {
     return result;
 }
 
-long Testing_registerToRegisterTest() {
-    long long total_count = 0;
-    time_t t0 = DateTime_getMicrosecondTime();
-
-    int i;
-    for (i = 0; i < N_INC_OUTER_LOOPS; i++) {
-        RegisterToRegister(REGISTER_TRANSFERS_COUNT);
-    }
-    long diff = DateTime_getMicrosecondTime() - t0;
-    if (diff > 0) {
-        long double d = N_INC_OUTER_LOOPS;
-        d *= REGISTER_TRANSFERS_COUNT;
-        d *= N_INC_PER_INNER;
-        d /= diff;
-        d *= 1000000; // usec->sec
-        d /= 1000000000; // billions/sec
-        printf("64-bit register-to-register transfers per second: %.2Lf billion\n", d);
-        total_count += REGISTER_TRANSFERS_COUNT;
-
-        diff = DateTime_getMicrosecondTime() - t0;
-    }
-
-    return 0;
-}
-
-long Testing_vectorToVectorTest128() {
-    long long total_count = 0;
-    time_t t0 = DateTime_getMicrosecondTime();
-
-    int i;
-    for (i = 0; i < N_INC_OUTER_LOOPS; i++) {
-        VectorToVector128(VREGISTER_TRANSFERS_COUNT);
-        total_count += VREGISTER_TRANSFERS_COUNT;
-    }
-    long diff = DateTime_getMicrosecondTime() - t0;
-    if (diff > 0) {
-        long double d = N_INC_OUTER_LOOPS;
-        d *= VREGISTER_TRANSFERS_COUNT;
-        d *= N_INC_PER_INNER;
-        d /= diff;
-        d *= 1000000; // usec->sec
-        d /= 1000000000; // billions/sec
-        printf("128-bit vector register to vector register transfers per second: %.2Lf billion\n",
-               d);
-        diff = DateTime_getMicrosecondTime() - t0;
-    }
-
-    return 0;
-}
-
 long Testing_memsetTest() {
     char *a1;
     unsigned long t, t0;
@@ -388,44 +339,4 @@ long Testing_memcpyTest() {
     free(a2);
 
     return Testing_calculate_result(NT_SIZE, NT_SIZE2, t - t0);
-}
-
-long Testing_incrementRegisters() {
-    time_t t0 = DateTime_getMicrosecondTime();
-
-    int i;
-    for (i = 0; i < N_INC_OUTER_LOOPS; i++) {
-        IncrementRegisters(N_INC_INNER_LOOPS);
-    }
-    time_t diff = DateTime_getMicrosecondTime() - t0;
-    if (diff > 0) {
-        long double d = N_INC_OUTER_LOOPS;
-        d *= N_INC_INNER_LOOPS;
-        d *= N_INC_PER_INNER;
-        d /= diff;
-        d *= 1000000; // usec->sec
-        d /= 1000000000; // billions/sec
-        printf("64-bit register increments per second: %.2Lf billion\n", d);
-    }
-    return 0;
-}
-
-long Testing_incrementStack() {
-    time_t t0 = DateTime_getMicrosecondTime();
-
-    int i;
-    for (i = 0; i < N_INC_OUTER_LOOPS; i++) {
-        IncrementStack(N_INC_INNER_LOOPS);
-    }
-    long diff = DateTime_getMicrosecondTime() - t0;
-    if (diff > 0) {
-        long double d = N_INC_OUTER_LOOPS;
-        d *= N_INC_INNER_LOOPS;
-        d *= N_INC_PER_INNER;
-        d /= diff;
-        d *= 1000000; // usec->sec
-        d /= 1000000000; // billions/sec
-        printf("64-bit stack value increments per second: %.2Lf billion\n", d);
-    }
-    return 0;
 }
