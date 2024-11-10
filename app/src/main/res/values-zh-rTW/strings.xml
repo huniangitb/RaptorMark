@@ -12,6 +12,7 @@
     <string name="start_button_desc">開始效能測試</string>
     <string name="stop_button_desc">停止效能測試</string>
     <string name="mbw_test_title">記憶體頻寬</string>
+    <string name="core_latency_test_title">核間延遲</string>
     <string name="fio_test_title">儲存吞吐量</string>
     <string name="seq_rd_test_title">順序讀取</string>
     <string name="seq_wr_test_title">順序寫入</string>

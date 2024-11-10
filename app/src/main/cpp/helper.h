@@ -60,6 +60,25 @@ private:
     } libFunc;
 };
 
+class LibCoreLatency {
+public:
+    int core_latency(int argc, char *argv[]);
+
+    LibCoreLatency(const char *func, void *callback);
+
+    ~LibCoreLatency();
+
+private:
+    void *libHandler;
+    void *callbackPtr;
+
+    union {
+        void *funcPtr = nullptr;
+
+        int (*core_latency)(int argc, char *argv[], void *callback_ptr);
+    } libFunc;
+};
+
 class LibFIO {
 public:
     int fio(int argc, char *argv[]);

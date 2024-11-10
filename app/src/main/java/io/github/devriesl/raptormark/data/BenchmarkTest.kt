@@ -15,7 +15,12 @@ abstract class BenchmarkTest(
 ) {
     private val nativeListener = object : NativeListener {
         override fun onTestResult(result: String) {
-            nativeResult = listOfNotNull(nativeResult, result).joinToString(System.lineSeparator())
+            // TODO: remove this ugly hack
+            nativeResult = if (this@BenchmarkTest is CoreLatencyTest) {
+                result
+            } else {
+                listOfNotNull(nativeResult, result).joinToString(System.lineSeparator())
+            }
             this@BenchmarkTest::class.companionObject?.declaredFunctions?.find {
                 it.name == parseResultMethodName
             }?.let { parseResultMethod ->

@@ -31,7 +31,7 @@ fun BenchmarkContent(
     benchmarkViewModel: BenchmarkViewModel,
     snackbarHostState: SnackbarHostState
 ) {
-    BoxWithConstraints(
+    Box(
         modifier = Modifier.fillMaxSize()
     ) {
         val state = benchmarkViewModel.benchmarkState
@@ -59,6 +59,37 @@ fun BenchmarkContent(
                 .nestedScroll(nestedScrollConnection)
                 .fillMaxHeight()
         ) {
+            item {
+                ExpandableCard(
+                    expanded = state.enableCoreLatencyTest,
+                    onExpandedChange = {
+                        benchmarkViewModel.enableCoreLatency(it)
+                    },
+                    title = R.string.core_latency_test_title
+                ) {
+                    val coreLatencyItems = remember(benchmarkViewModel.testItems) {
+                        benchmarkViewModel.testItems.filter { it.testCase.isCoreLatency() }
+                    }
+                    coreLatencyItems.forEachIndexed { index, testItem ->
+                        val testResult = testItem.testResult
+                        Column {
+                            CoreLatencyTestItem(
+                                title = testItem.testCase.title,
+                                latencies = remember(testResult) {
+                                    (testResult as? TestResult.CoreLatency)?.latenciesMap
+                                },
+                                progress = remember(testResult) {
+                                    (testResult as? TestResult.CoreLatency)?.progress
+                                }
+                            )
+                            if (index != coreLatencyItems.lastIndex) {
+                                Divider(modifier = Modifier.padding(horizontal = 32.dp))
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
             item {
                 ExpandableCard(
                     expanded = state.enableMBWTest,

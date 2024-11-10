@@ -113,6 +113,20 @@ LibMBW::~LibMBW() {
     dlclose(libHandler);
 }
 
+int LibCoreLatency::core_latency(int argc, char *argv[]) {
+    return libFunc.core_latency(argc, argv, callbackPtr);
+}
+
+LibCoreLatency::LibCoreLatency(const char *func, void *callback) {
+    callbackPtr = callback;
+    libHandler = dlopen("libcore_latency.so", RTLD_NOW);
+    libFunc.funcPtr = dlsym(libHandler, func);
+}
+
+LibCoreLatency::~LibCoreLatency() {
+    dlclose(libHandler);
+}
+
 int LibFIO::fio(int argc, char *argv[]) {
     return libFunc.fio(argc, argv, nullptr, callbackPtr);
 }

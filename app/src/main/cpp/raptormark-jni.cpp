@@ -48,6 +48,19 @@ JNIEXPORT jint JNICALL native_MBWTest(JNIEnv *env, jobject instance, jstring jso
     return ret;
 }
 
+JNIEXPORT jint JNICALL native_CoreLatencyTest(JNIEnv *env, jobject instance, jstring jsonCommand) {
+    const char *jsonStr = env->GetStringUTFChars(jsonCommand, NULL);
+    int ret, argc;
+    char **argv;
+    LibCoreLatency libCoreLatency("core_latency", (void *)updateStatusCallback);
+
+    json2Options(jsonStr, &argc, &argv);
+    ret = libCoreLatency.core_latency(argc, argv);
+    freeOptions(&argc, &argv);
+
+    return ret;
+}
+
 JNIEXPORT jint JNICALL native_FIOTest(JNIEnv *env, jobject instance, jstring jsonCommand) {
     const char *jsonStr = env->GetStringUTFChars(jsonCommand, NULL);
     int ret, argc;
@@ -95,6 +108,7 @@ JNIEXPORT jstring JNICALL native_ListEngines(JNIEnv *env, jobject instance) {
 
 static const JNINativeMethod FIOMethods[] = {
         {"native_MBWTest",       "(Ljava/lang/String;)I", (void *) native_MBWTest},
+        {"native_CoreLatencyTest", "(Ljava/lang/String;)I", (void *) native_CoreLatencyTest},
         {"native_FIOTest",       "(Ljava/lang/String;)I", (void *) native_FIOTest},
         {"native_ListEngines",   "()Ljava/lang/String;",  (void *) native_ListEngines}
 };

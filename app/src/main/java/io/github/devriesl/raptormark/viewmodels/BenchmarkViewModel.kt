@@ -57,6 +57,12 @@ class BenchmarkViewModel @Inject constructor(
         testItems = updateTestItems()
     }
 
+    fun enableCoreLatency(enable: Boolean) {
+        if (benchmarkState.running) return
+        benchmarkState = benchmarkState.copy(enableCoreLatencyTest = enable)
+        testItems = updateTestItems()
+    }
+
     fun enableFIO(enable: Boolean) {
         if (benchmarkState.running) return
         benchmarkState = benchmarkState.copy(enableFIOTest = enable)
@@ -72,6 +78,13 @@ class BenchmarkViewModel @Inject constructor(
                     } else {
                         null
                     } ?: MBWTest(testCase, settingSharedPrefs)
+                }
+                testCase.isCoreLatency() && benchmarkState.enableCoreLatencyTest -> {
+                    if (isInitialized) {
+                        testItems.find { it.testCase == testCase }
+                    } else {
+                        null
+                    } ?: CoreLatencyTest(testCase, settingSharedPrefs)
                 }
                 testCase.isFIO() && benchmarkState.enableFIOTest -> {
                     if (isInitialized) {
@@ -89,5 +102,6 @@ class BenchmarkViewModel @Inject constructor(
 data class BenchmarkState(
     val running: Boolean = false,
     val enableMBWTest: Boolean = true,
+    val enableCoreLatencyTest: Boolean = true,
     val enableFIOTest: Boolean = true
 )
