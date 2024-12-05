@@ -17,12 +17,20 @@
 #include <assert.h>
 #include <sys/types.h>
 #include <dirent.h>
+#include <errno.h>
 
 #include "fio.h"
 #include "diskutil.h"
 #include "zbd.h"
 
 static FLIST_HEAD(engine_list);
+
+static inline bool async_ioengine_sync_trim(struct thread_data *td,
+					    struct io_u	*io_u)
+{
+	return td_ioengine_flagged(td, FIO_ASYNCIO_SYNC_TRIM) &&
+		io_u->ddir == DDIR_TRIM;
+}
 
 static bool check_engine_ops(struct thread_data *td, struct ioengine_ops *ops)
 {
@@ -223,6 +231,8 @@ struct ioengine_ops *load_ioengine(struct thread_data *td)
  */
 void free_ioengine(struct thread_data *td)
 {
+	assert(td != NULL && td->io_ops != NULL);
+
 	dprint(FD_IO, "free ioengine %s\n", td->io_ops->name);
 
 	if (td->eo && td->io_ops->options) {
@@ -333,8 +343,13 @@ enum fio_q_status td_io_queue(struct thread_data *td, struct io_u *io_u)
 	 * flag is now set
 	 */
 	if (td_offload_overlap(td)) {
-		int res = pthread_mutex_unlock(&overlap_check);
-		assert(res == 0);
+		int res;
+
+		res = pthread_mutex_unlock(&overlap_check);
+		if (fio_unlikely(res != 0)) {
+			log_err("failed to unlock overlap check mutex, err: %i:%s", errno, strerror(errno));
+			abort();
+		}
 	}
 
 	assert(fio_file_open(io_u->file));
@@ -348,17 +363,17 @@ enum fio_q_status td_io_queue(struct thread_data *td, struct io_u *io_u)
 	io_u->resid = 0;
 
 	if (td_ioengine_flagged(td, FIO_SYNCIO) ||
-		(td_ioengine_flagged(td, FIO_ASYNCIO_SYNC_TRIM) && 
-		io_u->ddir == DDIR_TRIM)) {
-		if (fio_fill_issue_time(td))
+		async_ioengine_sync_trim(td, io_u)) {
+		if (fio_fill_issue_time(td)) {
 			fio_gettime(&io_u->issue_time, NULL);
 
-		/*
-		 * only used for iolog
-		 */
-		if (td->o.read_iolog_file)
-			memcpy(&td->last_issue, &io_u->issue_time,
-					sizeof(io_u->issue_time));
+			/*
+			 * only used for iolog
+			 */
+			if (td->o.read_iolog_file)
+				memcpy(&td->last_issue, &io_u->issue_time,
+						sizeof(io_u->issue_time));
+		}
 	}
 
 
@@ -421,6 +436,8 @@ enum fio_q_status td_io_queue(struct thread_data *td, struct io_u *io_u)
 			io_u_mark_depth(td, 1);
 			td->ts.total_io_u[io_u->ddir]++;
 		}
+
+		td->last_ddir_issued = ddir;
 	} else if (ret == FIO_Q_QUEUED) {
 		td->io_u_queued++;
 
@@ -430,20 +447,23 @@ enum fio_q_status td_io_queue(struct thread_data *td, struct io_u *io_u)
 
 		if (td->io_u_queued >= td->o.iodepth_batch)
 			td_io_commit(td);
+
+		td->last_ddir_issued = ddir;
 	}
 
 	if (!td_ioengine_flagged(td, FIO_SYNCIO) &&
-		(!td_ioengine_flagged(td, FIO_ASYNCIO_SYNC_TRIM) ||
-		 io_u->ddir != DDIR_TRIM)) {
-		if (fio_fill_issue_time(td))
+		!async_ioengine_sync_trim(td, io_u)) {
+		if (fio_fill_issue_time(td) &&
+			!td_ioengine_flagged(td, FIO_ASYNCIO_SETS_ISSUE_TIME)) {
 			fio_gettime(&io_u->issue_time, NULL);
 
-		/*
-		 * only used for iolog
-		 */
-		if (td->o.read_iolog_file)
-			memcpy(&td->last_issue, &io_u->issue_time,
-					sizeof(io_u->issue_time));
+			/*
+			 * only used for iolog
+			 */
+			if (td->o.read_iolog_file)
+				memcpy(&td->last_issue, &io_u->issue_time,
+						sizeof(io_u->issue_time));
+		}
 	}
 
 	return ret;
@@ -555,6 +575,10 @@ int td_io_open_file(struct thread_data *td, struct fio_file *f)
 			flags = POSIX_FADV_RANDOM;
 		else if (td->o.fadvise_hint == F_ADV_SEQUENTIAL)
 			flags = POSIX_FADV_SEQUENTIAL;
+#ifdef POSIX_FADV_NOREUSE
+		else if (td->o.fadvise_hint == F_ADV_NOREUSE)
+			flags = POSIX_FADV_NOREUSE;
+#endif
 		else {
 			log_err("fio: unknown fadvise type %d\n",
 							td->o.fadvise_hint);
@@ -570,19 +594,21 @@ int td_io_open_file(struct thread_data *td, struct fio_file *f)
 	if (fio_option_is_set(&td->o, write_hint) &&
 	    (f->filetype == FIO_TYPE_BLOCK || f->filetype == FIO_TYPE_FILE)) {
 		uint64_t hint = td->o.write_hint;
-		int cmd;
+		int res;
 
 		/*
-		 * For direct IO, we just need/want to set the hint on
-		 * the file descriptor. For buffered IO, we need to set
-		 * it on the inode.
+		 * For direct IO, set the hint on the file descriptor if that is
+		 * supported. Otherwise set it on the inode. For buffered IO, we
+		 * need to set it on the inode.
 		 */
-		if (td->o.odirect)
-			cmd = F_SET_FILE_RW_HINT;
-		else
-			cmd = F_SET_RW_HINT;
-
-		if (fcntl(f->fd, cmd, &hint) < 0) {
+		if (td->o.odirect) {
+			res = fcntl(f->fd, F_SET_FILE_RW_HINT, &hint);
+			if (res < 0)
+				res = fcntl(f->fd, F_SET_RW_HINT, &hint);
+		} else {
+			res = fcntl(f->fd, F_SET_RW_HINT, &hint);
+		}
+		if (res < 0) {
 			td_verror(td, errno, "fcntl write hint");
 			goto err;
 		}

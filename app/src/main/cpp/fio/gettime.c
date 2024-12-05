@@ -313,7 +313,7 @@ static int calibrate_cpu_clock(void)
 
 	max_ticks = MAX_CLOCK_SEC * cycles_per_msec * 1000ULL;
 	max_mult = ULLONG_MAX / max_ticks;
-	dprint(FD_TIME, "\n\nmax_ticks=%llu, __builtin_clzll=%d, "
+	dprint(FD_TIME, "max_ticks=%llu, __builtin_clzll=%d, "
 			"max_mult=%llu\n", max_ticks,
 			__builtin_clzll(max_ticks), max_mult);
 
@@ -335,7 +335,7 @@ static int calibrate_cpu_clock(void)
 
 	/*
 	 * Find the greatest power of 2 clock ticks that is less than the
-	 * ticks in MAX_CLOCK_SEC_2STAGE
+	 * ticks in MAX_CLOCK_SEC
 	 */
 	max_cycles_shift = max_cycles_mask = 0;
 	tmp = MAX_CLOCK_SEC * 1000ULL * cycles_per_msec;
@@ -431,22 +431,22 @@ void fio_clock_init(void)
 
 uint64_t ntime_since(const struct timespec *s, const struct timespec *e)
 {
-       int64_t sec, nsec;
+	int64_t sec, nsec;
 
-       sec = e->tv_sec - s->tv_sec;
-       nsec = e->tv_nsec - s->tv_nsec;
-       if (sec > 0 && nsec < 0) {
-	       sec--;
-	       nsec += 1000000000LL;
-       }
+	sec = e->tv_sec - s->tv_sec;
+	nsec = e->tv_nsec - s->tv_nsec;
+	if (sec > 0 && nsec < 0) {
+		sec--;
+		nsec += 1000000000LL;
+	}
 
        /*
 	* time warp bug on some kernels?
 	*/
-       if (sec < 0 || (sec == 0 && nsec < 0))
-	       return 0;
+	if (sec < 0 || (sec == 0 && nsec < 0))
+		return 0;
 
-       return nsec + (sec * 1000000000LL);
+	return nsec + (sec * 1000000000LL);
 }
 
 uint64_t ntime_since_now(const struct timespec *s)
@@ -623,7 +623,7 @@ static void *clock_thread_fn(void *data)
 			seq = *t->seq;
 			if (seq == UINT_MAX)
 				break;
-			__sync_synchronize();
+			tsc_barrier();
 			tsc = get_cpu_clock();
 		} while (seq != atomic32_compare_and_swap(t->seq, seq, seq + 1));
 
@@ -671,7 +671,7 @@ static int clock_cmp(const void *p1, const void *p2)
 int fio_monotonic_clocktest(int debug)
 {
 	struct clock_thread *cthreads;
-	unsigned int seen_cpus, nr_cpus = cpus_online();
+	unsigned int seen_cpus, nr_cpus = cpus_configured();
 	struct clock_entry *entries;
 	unsigned long nr_entries, tentries, failed = 0;
 	struct clock_entry *prev, *this;

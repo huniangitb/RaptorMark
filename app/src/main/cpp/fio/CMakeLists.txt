@@ -7,6 +7,8 @@ target_sources(fio INTERFACE ${FIO_SOURCES})
 
 target_include_directories(fio PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8.1-a+crc+crypto")
+
 target_compile_options(fio PUBLIC
         -Wwrite-strings -Wall -Wdeclaration-after-statement
         -D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64 -DFIO_INTERNAL -ffast-math

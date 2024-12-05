@@ -21,7 +21,9 @@ enum {
 	IO_U_F_TRIMMED		= 1 << 5,
 	IO_U_F_BARRIER		= 1 << 6,
 	IO_U_F_VER_LIST		= 1 << 7,
-	IO_U_F_HIGH_PRIO	= 1 << 8,
+	IO_U_F_PATTERN_DONE	= 1 << 8,
+	IO_U_F_DEVICE_ERROR	= 1 << 9,
+	IO_U_F_VER_IN_DEV	= 1 << 10, /* Verify data in device */
 };
 
 /*
@@ -50,6 +52,12 @@ struct io_u {
 	 * IO priority.
 	 */
 	unsigned short ioprio;
+	unsigned short clat_prio_index;
+
+	/*
+	 * number of trim ranges for this IO.
+	 */
+	unsigned int number_trim;
 
 	/*
 	 * Allocated/set buffer and length
@@ -88,8 +96,8 @@ struct io_u {
 	union {
 		unsigned int index;
 		unsigned int seen;
-		void *engine_data;
 	};
+	void *engine_data;
 
 	union {
 		struct flist_head verify_list;
@@ -116,6 +124,9 @@ struct io_u {
 	 * Callback for io completion
 	 */
 	int (*end_io)(struct thread_data *, struct io_u **);
+
+	uint32_t dtype;
+	uint32_t dspec;
 
 	union {
 #ifdef CONFIG_LIBAIO
@@ -158,7 +169,7 @@ void io_u_mark_submit(struct thread_data *, unsigned int);
 bool queue_full(const struct thread_data *);
 
 int do_io_u_sync(const struct thread_data *, struct io_u *);
-int do_io_u_trim(const struct thread_data *, struct io_u *);
+int do_io_u_trim(struct thread_data *, struct io_u *);
 
 #ifdef FIO_INC_DEBUG
 static inline void dprint_io_u(struct io_u *io_u, const char *p)
@@ -193,6 +204,5 @@ static inline enum fio_ddir acct_ddir(struct io_u *io_u)
 	td_flags_clear((td), &(io_u->flags), (val))
 #define io_u_set(td, io_u, val)		\
 	td_flags_set((td), &(io_u)->flags, (val))
-#define io_u_is_high_prio(io_u)	(io_u->flags & IO_U_F_HIGH_PRIO)
 
 #endif

@@ -50,6 +50,12 @@ struct split {
 	unsigned long long val2[ZONESPLIT_MAX];
 };
 
+struct split_prio {
+	uint64_t bs;
+	int32_t prio;
+	uint32_t perc;
+};
+
 struct bssplit {
 	uint64_t bs;
 	uint32_t perc;
@@ -138,7 +144,7 @@ struct thread_options {
 	unsigned int do_verify;
 	unsigned int verify_interval;
 	unsigned int verify_offset;
-	char verify_pattern[MAX_PATTERN_SIZE];
+	char *verify_pattern;
 	unsigned int verify_pattern_bytes;
 	struct pattern_fmt verify_fmt[8];
 	unsigned int verify_fmt_sz;
@@ -150,13 +156,13 @@ struct thread_options {
 	unsigned int experimental_verify;
 	unsigned int verify_state;
 	unsigned int verify_state_save;
+	unsigned int verify_write_sequence;
 	unsigned int use_thread;
 	unsigned int unlink;
 	unsigned int unlink_each_loop;
 	unsigned int do_disk_util;
 	unsigned int override_sync;
 	unsigned int rand_repeatable;
-	unsigned int allrand_repeatable;
 	unsigned long long rand_seed;
 	unsigned int log_avg_msec;
 	unsigned int log_hist_msec;
@@ -165,7 +171,8 @@ struct thread_options {
 	unsigned int log_offset;
 	unsigned int log_gz;
 	unsigned int log_gz_store;
-	unsigned int log_unix_epoch;
+	unsigned int log_alternate_epoch;
+	unsigned int log_alternate_epoch_clock_id;
 	unsigned int norandommap;
 	unsigned int softrandommap;
 	unsigned int bs_unaligned;
@@ -203,6 +210,7 @@ struct thread_options {
 	fio_fp64_t ss_limit;
 	unsigned long long ss_dur;
 	unsigned long long ss_ramp_time;
+	unsigned long long ss_check_interval;
 	unsigned int overwrite;
 	unsigned int bw_avg_time;
 	unsigned int iops_avg_time;
@@ -240,6 +248,7 @@ struct thread_options {
 	unsigned int nice;
 	unsigned int ioprio;
 	unsigned int ioprio_class;
+	unsigned int ioprio_hint;
 	unsigned int file_service_type;
 	unsigned int group_reporting;
 	unsigned int stats;
@@ -248,13 +257,14 @@ struct thread_options {
 	unsigned int zero_buffers;
 	unsigned int refill_buffers;
 	unsigned int scramble_buffers;
-	char buffer_pattern[MAX_PATTERN_SIZE];
+	char *buffer_pattern;
 	unsigned int buffer_pattern_bytes;
 	unsigned int compress_percentage;
 	unsigned int compress_chunk;
 	unsigned int dedupe_percentage;
 	unsigned int dedupe_mode;
 	unsigned int dedupe_working_set_percentage;
+	unsigned int dedupe_global;
 	unsigned int time_based;
 	unsigned int disable_lat;
 	unsigned int disable_clat;
@@ -263,6 +273,7 @@ struct thread_options {
 	unsigned int unified_rw_rep;
 	unsigned int gtod_reduce;
 	unsigned int gtod_cpu;
+	unsigned int job_start_clock_id;
 	enum fio_cs clocksource;
 	unsigned int no_stall;
 	unsigned int trim_percentage;
@@ -298,6 +309,8 @@ struct thread_options {
 	 */
 	char *exec_prerun;
 	char *exec_postrun;
+
+	unsigned int thinkcycles;
 
 	unsigned int thinktime;
 	unsigned int thinktime_spin;
@@ -341,12 +354,14 @@ struct thread_options {
 	unsigned long long offset_increment;
 	unsigned long long number_ios;
 
+	unsigned int num_range;
+
 	unsigned int sync_file_range;
 
 	unsigned long long latency_target;
 	unsigned long long latency_window;
-	fio_fp64_t latency_percentile;
 	uint32_t latency_run;
+	fio_fp64_t latency_percentile;
 
 	/*
 	 * flow support
@@ -377,8 +392,16 @@ struct thread_options {
 	fio_fp64_t zrt;
 	fio_fp64_t zrf;
 
+	unsigned int fdp;
+	unsigned int dp_type;
+	unsigned int dp_id_select;
+	uint16_t dp_ids[FIO_MAX_DP_IDS];
+	unsigned int dp_nr_ids;
+	char *dp_scheme_file;
+
 	unsigned int log_entries;
 	unsigned int log_prio;
+	unsigned int log_issue_time;
 };
 
 #define FIO_TOP_STR_MAX		256
@@ -406,7 +429,6 @@ struct thread_options_pack {
 	uint32_t iodepth_batch_complete_min;
 	uint32_t iodepth_batch_complete_max;
 	uint32_t serialize_overlap;
-	uint32_t pad;
 
 	uint64_t size;
 	uint64_t io_size;
@@ -417,13 +439,11 @@ struct thread_options_pack {
 	uint32_t fill_device;
 	uint32_t file_append;
 	uint32_t unique_filename;
-	uint32_t pad3;
 	uint64_t file_size_low;
 	uint64_t file_size_high;
 	uint64_t start_offset;
 	uint64_t start_offset_align;
 	uint32_t start_offset_nz;
-	uint32_t pad4;
 
 	uint64_t bs[DDIR_RWDIR_CNT];
 	uint64_t ba[DDIR_RWDIR_CNT];
@@ -455,7 +475,6 @@ struct thread_options_pack {
 	uint32_t do_verify;
 	uint32_t verify_interval;
 	uint32_t verify_offset;
-	uint8_t verify_pattern[MAX_PATTERN_SIZE];
 	uint32_t verify_pattern_bytes;
 	uint32_t verify_fatal;
 	uint32_t verify_dump;
@@ -471,8 +490,6 @@ struct thread_options_pack {
 	uint32_t do_disk_util;
 	uint32_t override_sync;
 	uint32_t rand_repeatable;
-	uint32_t allrand_repeatable;
-	uint32_t pad2;
 	uint64_t rand_seed;
 	uint32_t log_avg_msec;
 	uint32_t log_hist_msec;
@@ -481,7 +498,8 @@ struct thread_options_pack {
 	uint32_t log_offset;
 	uint32_t log_gz;
 	uint32_t log_gz_store;
-	uint32_t log_unix_epoch;
+	uint32_t log_alternate_epoch;
+	uint32_t log_alternate_epoch_clock_id;
 	uint32_t norandommap;
 	uint32_t softrandommap;
 	uint32_t bs_unaligned;
@@ -518,6 +536,7 @@ struct thread_options_pack {
 	uint64_t ss_ramp_time;
 	uint32_t ss_state;
 	fio_fp64_t ss_limit;
+	uint64_t ss_check_interval;
 	uint32_t overwrite;
 	uint32_t bw_avg_time;
 	uint32_t iops_avg_time;
@@ -553,6 +572,7 @@ struct thread_options_pack {
 	uint32_t nice;
 	uint32_t ioprio;
 	uint32_t ioprio_class;
+	uint32_t ioprio_hint;
 	uint32_t file_service_type;
 	uint32_t group_reporting;
 	uint32_t stats;
@@ -561,13 +581,13 @@ struct thread_options_pack {
 	uint32_t zero_buffers;
 	uint32_t refill_buffers;
 	uint32_t scramble_buffers;
-	uint8_t buffer_pattern[MAX_PATTERN_SIZE];
 	uint32_t buffer_pattern_bytes;
 	uint32_t compress_percentage;
 	uint32_t compress_chunk;
 	uint32_t dedupe_percentage;
 	uint32_t dedupe_mode;
 	uint32_t dedupe_working_set_percentage;
+	uint32_t dedupe_global;
 	uint32_t time_based;
 	uint32_t disable_lat;
 	uint32_t disable_clat;
@@ -576,6 +596,7 @@ struct thread_options_pack {
 	uint32_t unified_rw_rep;
 	uint32_t gtod_reduce;
 	uint32_t gtod_cpu;
+	uint32_t job_start_clock_id;
 	uint32_t clocksource;
 	uint32_t no_stall;
 	uint32_t trim_percentage;
@@ -586,6 +607,7 @@ struct thread_options_pack {
 	uint32_t lat_percentiles;
 	uint32_t slat_percentiles;
 	uint32_t percentile_precision;
+	uint32_t pad;
 	fio_fp64_t percentile_list[FIO_IO_U_LIST_MAX_LEN];
 
 	uint8_t read_iolog_file[FIO_TOP_STR_MAX];
@@ -610,6 +632,8 @@ struct thread_options_pack {
 	 */
 	uint8_t exec_prerun[FIO_TOP_STR_MAX];
 	uint8_t exec_postrun[FIO_TOP_STR_MAX];
+
+	uint32_t thinkcycles;
 
 	uint32_t thinktime;
 	uint32_t thinktime_spin;
@@ -656,8 +680,8 @@ struct thread_options_pack {
 	uint64_t latency_target;
 	uint64_t latency_window;
 	uint64_t max_latency[DDIR_RWDIR_CNT];
-	fio_fp64_t latency_percentile;
 	uint32_t latency_run;
+	fio_fp64_t latency_percentile;
 
 	/*
 	 * flow support
@@ -686,9 +710,25 @@ struct thread_options_pack {
 
 	uint32_t log_entries;
 	uint32_t log_prio;
+	uint32_t log_issue_time;
+
+	uint32_t fdp;
+	uint32_t dp_type;
+	uint32_t dp_id_select;
+	uint16_t dp_ids[FIO_MAX_DP_IDS];
+	uint32_t dp_nr_ids;
+	uint8_t dp_scheme_file[FIO_TOP_STR_MAX];
+
+	uint32_t num_range;
+	/*
+	 * verify_pattern followed by buffer_pattern from the unpacked struct
+	 */
+	uint8_t patterns[];
 } __attribute__((packed));
 
-extern void convert_thread_options_to_cpu(struct thread_options *o, struct thread_options_pack *top);
+extern int convert_thread_options_to_cpu(struct thread_options *o,
+		struct thread_options_pack *top, size_t top_sz);
+extern size_t thread_options_pack_size(struct thread_options *o);
 extern void convert_thread_options_to_net(struct thread_options_pack *top, struct thread_options *);
 extern int fio_test_cconv(struct thread_options *);
 extern void options_default_fill(struct thread_options *o);
@@ -701,5 +741,9 @@ extern int str_split_parse(struct thread_data *td, char *str,
 
 extern int split_parse_ddir(struct thread_options *o, struct split *split,
 			    char *str, bool absolute, unsigned int max_splits);
+
+extern int split_parse_prio_ddir(struct thread_options *o,
+				 struct split_prio **entries, int *nr_entries,
+				 char *str);
 
 #endif

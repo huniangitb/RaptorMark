@@ -226,6 +226,13 @@ static struct option l_opts[FIO_NR_OPTIONS] = {
 		.has_arg	= optional_argument,
 		.val		= 'S',
 	},
+#ifdef WIN32
+	{
+		.name		= (char *) "server-internal",
+		.has_arg	= required_argument,
+		.val		= 'N',
+	},
+#endif
 	{	.name		= (char *) "daemonize",
 		.has_arg	= required_argument,
 		.val		= 'D',
@@ -613,6 +620,19 @@ static int fixup_options(struct thread_data *td)
 		ret |= 1;
 	}
 
+	if (td_trimwrite(td) && o->num_range > 1) {
+		log_err("fio: trimwrite cannot be used with multiple"
+			" ranges.\n");
+		ret |= 1;
+	}
+
+	if (td_trim(td) && o->num_range > 1 &&
+	    !td_ioengine_flagged(td, FIO_MULTI_RANGE_TRIM)) {
+		log_err("fio: can't use multiple ranges with IO engine %s\n",
+			td->io_ops->name);
+		ret |= 1;
+	}
+
 #ifndef CONFIG_PSHARED
 	if (!o->use_thread) {
 		log_info("fio: this platform does not support process shared"
@@ -835,6 +855,20 @@ static int fixup_options(struct thread_data *td)
 		    (o->max_bs[DDIR_WRITE] % o->verify_interval))
 			o->verify_interval = gcd(o->min_bs[DDIR_WRITE],
 							o->max_bs[DDIR_WRITE]);
+
+		if (td->o.verify_only)
+			o->verify_write_sequence = 0;
+	}
+
+	if (td->o.oatomic) {
+		if (!td_ioengine_flagged(td, FIO_ATOMICWRITES)) {
+			log_err("fio: engine does not support atomic writes\n");
+			td->o.oatomic = 0;
+			ret |= 1;
+		}
+
+		if (!td_write(td))
+			td->o.oatomic = 0;
 	}
 
 	if (o->pre_read) {
@@ -912,12 +946,6 @@ static int fixup_options(struct thread_data *td)
 	}
 
 	/*
-	 * O_ATOMIC implies O_DIRECT
-	 */
-	if (o->oatomic)
-		o->odirect = 1;
-
-	/*
 	 * If randseed is set, that overrides randrepeat
 	 */
 	if (fio_option_is_set(o, rand_seed))
@@ -952,13 +980,16 @@ static int fixup_options(struct thread_data *td)
 	if (o->disable_slat)
 		o->slat_percentiles = 0;
 
-	/*
-	 * Fix these up to be nsec internally
-	 */
-	for_each_rw_ddir(ddir)
-		o->max_latency[ddir] *= 1000ULL;
+	/* Do this only for the parent job */
+	if (!td->subjob_number) {
+		/*
+		 * Fix these up to be nsec internally
+		 */
+		for_each_rw_ddir(ddir)
+			o->max_latency[ddir] *= 1000ULL;
 
-	o->latency_target *= 1000ULL;
+		o->latency_target *= 1000ULL;
+	}
 
 	/*
 	 * Dedupe working set verifications
@@ -982,6 +1013,33 @@ static int fixup_options(struct thread_data *td)
 		}
 	}
 
+	for_each_td(td2) {
+		if (td->o.ss_check_interval != td2->o.ss_check_interval) {
+			log_err("fio: conflicting ss_check_interval: %llu and %llu, must be globally equal\n",
+					td->o.ss_check_interval, td2->o.ss_check_interval);
+			ret |= 1;
+		}
+	} end_for_each();
+	if (td->o.ss_dur && td->o.ss_check_interval / 1000L < 1000) {
+		log_err("fio: ss_check_interval must be at least 1s\n");
+		ret |= 1;
+
+	}
+	if (td->o.ss_dur && (td->o.ss_dur % td->o.ss_check_interval != 0 || td->o.ss_dur <= td->o.ss_check_interval)) {
+		log_err("fio: ss_duration %lluus must be multiple of ss_check_interval %lluus\n",
+				td->o.ss_dur, td->o.ss_check_interval);
+		ret |= 1;
+	}
+
+	if (td->o.fdp) {
+		if (fio_option_is_set(&td->o, dp_type) &&
+			(td->o.dp_type == FIO_DP_STREAMS || td->o.dp_type == FIO_DP_NONE)) {
+			log_err("fio: fdp=1 is not compatible with dataplacement={streams, none}\n");
+			ret |= 1;
+		} else {
+			td->o.dp_type = FIO_DP_FDP;
+		}
+	}
 	return ret;
 }
 
@@ -1002,25 +1060,18 @@ static void init_rand_file_service(struct thread_data *td)
 	}
 }
 
-void td_fill_verify_state_seed(struct thread_data *td)
+void td_fill_rand_seeds(struct thread_data *td)
 {
+	uint64_t read_seed = td->rand_seeds[FIO_RAND_BS_OFF];
+	uint64_t write_seed = td->rand_seeds[FIO_RAND_BS1_OFF];
+	uint64_t trim_seed = td->rand_seeds[FIO_RAND_BS2_OFF];
+	int i;
 	bool use64;
 
 	if (td->o.random_generator == FIO_RAND_GEN_TAUSWORTHE64)
 		use64 = true;
 	else
 		use64 = false;
-
-	init_rand_seed(&td->verify_state, td->rand_seeds[FIO_RAND_VER_OFF],
-		use64);
-}
-
-static void td_fill_rand_seeds_internal(struct thread_data *td, bool use64)
-{
-	uint64_t read_seed = td->rand_seeds[FIO_RAND_BS_OFF];
-	uint64_t write_seed = td->rand_seeds[FIO_RAND_BS1_OFF];
-	uint64_t trim_seed = td->rand_seeds[FIO_RAND_BS2_OFF];
-	int i;
 
 	/*
 	 * trimwrite is special in that we need to generate the same
@@ -1038,7 +1089,8 @@ static void td_fill_rand_seeds_internal(struct thread_data *td, bool use64)
 	init_rand_seed(&td->bsrange_state[DDIR_WRITE], write_seed, use64);
 	init_rand_seed(&td->bsrange_state[DDIR_TRIM], trim_seed, use64);
 
-	td_fill_verify_state_seed(td);
+	init_rand_seed(&td->verify_state, td->rand_seeds[FIO_RAND_VER_OFF],
+		use64);
 	init_rand_seed(&td->rwmix_state, td->rand_seeds[FIO_RAND_MIX_OFF], false);
 
 	if (td->o.file_service_type == FIO_FSERVICE_RANDOM)
@@ -1057,12 +1109,6 @@ static void td_fill_rand_seeds_internal(struct thread_data *td, bool use64)
 	init_rand_seed(&td->prio_state, td->rand_seeds[FIO_RAND_PRIO_CMDS], false);
 	init_rand_seed(&td->dedupe_working_set_index_state, td->rand_seeds[FIO_RAND_DEDUPE_WORKING_SET_IX], use64);
 
-	if (!td_random(td))
-		return;
-
-	if (td->o.rand_repeatable)
-		td->rand_seeds[FIO_RAND_BLOCK_OFF] = FIO_RANDSEED * td->thread_number;
-
 	init_rand_seed(&td->random_state, td->rand_seeds[FIO_RAND_BLOCK_OFF], use64);
 
 	for (i = 0; i < DDIR_RWDIR_CNT; i++) {
@@ -1070,29 +1116,41 @@ static void td_fill_rand_seeds_internal(struct thread_data *td, bool use64)
 
 		init_rand_seed(s, td->rand_seeds[FIO_RAND_SEQ_RAND_READ_OFF], false);
 	}
-}
-
-void td_fill_rand_seeds(struct thread_data *td)
-{
-	bool use64;
-
-	if (td->o.allrand_repeatable) {
-		unsigned int i;
-
-		for (i = 0; i < FIO_RAND_NR_OFFS; i++)
-			td->rand_seeds[i] = FIO_RANDSEED * td->thread_number
-			       	+ i;
-	}
-
-	if (td->o.random_generator == FIO_RAND_GEN_TAUSWORTHE64)
-		use64 = true;
-	else
-		use64 = false;
-
-	td_fill_rand_seeds_internal(td, use64);
 
 	init_rand_seed(&td->buf_state, td->rand_seeds[FIO_RAND_BUF_OFF], use64);
 	frand_copy(&td->buf_state_prev, &td->buf_state);
+
+	init_rand_seed(&td->fdp_state, td->rand_seeds[FIO_RAND_FDP_OFF], use64);
+}
+
+static int setup_random_seeds(struct thread_data *td)
+{
+	uint64_t seed;
+	unsigned int i;
+
+	if (!td->o.rand_repeatable && !fio_option_is_set(&td->o, rand_seed)) {
+		int ret = init_random_seeds(td->rand_seeds, sizeof(td->rand_seeds));
+		dprint(FD_RANDOM, "using system RNG for random seeds\n");
+		if (ret)
+			return ret;
+	} else {
+		seed = td->o.rand_seed;
+		for (i = 0; i < 4; i++)
+			seed *= 0x9e370001UL;
+
+		for (i = 0; i < FIO_RAND_NR_OFFS; i++) {
+			td->rand_seeds[i] = seed * td->thread_number + i;
+			seed *= 0x9e370001UL;
+		}
+	}
+
+	td_fill_rand_seeds(td);
+
+	dprint(FD_RANDOM, "FIO_RAND_NR_OFFS=%d\n", FIO_RAND_NR_OFFS);
+	for (int i = 0; i < FIO_RAND_NR_OFFS; i++)
+		dprint(FD_RANDOM, "rand_seeds[%d]=%" PRIu64 "\n", i, td->rand_seeds[i]);
+
+	return 0;
 }
 
 /*
@@ -1226,31 +1284,6 @@ static void init_flags(struct thread_data *td)
 			break;
 		}
 	}
-}
-
-static int setup_random_seeds(struct thread_data *td)
-{
-	uint64_t seed;
-	unsigned int i;
-
-	if (!td->o.rand_repeatable && !fio_option_is_set(&td->o, rand_seed)) {
-		int ret = init_random_seeds(td->rand_seeds, sizeof(td->rand_seeds));
-		if (!ret)
-			td_fill_rand_seeds(td);
-		return ret;
-	}
-
-	seed = td->o.rand_seed;
-	for (i = 0; i < 4; i++)
-		seed *= 0x9e370001UL;
-
-	for (i = 0; i < FIO_RAND_NR_OFFS; i++) {
-		td->rand_seeds[i] = seed * td->thread_number + i;
-		seed *= 0x9e370001UL;
-	}
-
-	td_fill_rand_seeds(td);
-	return 0;
 }
 
 enum {
@@ -1406,15 +1439,14 @@ static void gen_log_name(char *name, size_t size, const char *logtype,
 
 static int check_waitees(char *waitee)
 {
-	struct thread_data *td;
-	int i, ret = 0;
+	int ret = 0;
 
-	for_each_td(td, i) {
+	for_each_td(td) {
 		if (td->subjob_number)
 			continue;
 
 		ret += !strcmp(td->o.name, waitee);
-	}
+	} end_for_each();
 
 	return ret;
 }
@@ -1445,6 +1477,23 @@ static bool wait_for_ok(const char *jobname, struct thread_options *o)
 	}
 
 	return true;
+}
+
+static int verify_per_group_options(struct thread_data *td, const char *jobname)
+{
+	for_each_td(td2) {
+		if (td->groupid != td2->groupid)
+			continue;
+
+		if (td->o.stats &&
+		    td->o.lat_percentiles != td2->o.lat_percentiles) {
+			log_err("fio: lat_percentiles in job: %s differs from group\n",
+				jobname);
+			return 1;
+		}
+	} end_for_each();
+
+	return 0;
 }
 
 /*
@@ -1516,7 +1565,7 @@ static int add_job(struct thread_data *td, const char *jobname, int job_add_num,
 	if (fixup_options(td))
 		goto err;
 
-	if (init_dedupe_working_set_seeds(td))
+	if (!td->o.dedupe_global && init_dedupe_working_set_seeds(td, 0))
 		goto err;
 
 	/*
@@ -1551,7 +1600,14 @@ static int add_job(struct thread_data *td, const char *jobname, int job_add_num,
 	td->ts.sig_figs = o->sig_figs;
 
 	init_thread_stat_min_vals(&td->ts);
-	td->ddir_seq_nr = o->ddir_seq_nr;
+
+	/*
+	 * td->>ddir_seq_nr needs to be initialized to 1, NOT o->ddir_seq_nr,
+	 * so that get_next_offset gets a new random offset the first time it
+	 * is called, instead of keeping an initial offset of 0 for the first
+	 * nr-1 calls
+	 */
+	td->ddir_seq_nr = 1;
 
 	if ((o->stonewall || o->new_group) && prev_group_jobs) {
 		prev_group_jobs = 0;
@@ -1565,6 +1621,10 @@ static int add_job(struct thread_data *td, const char *jobname, int job_add_num,
 	td->groupid = groupid;
 	prev_group_jobs++;
 
+	if (td->o.group_reporting && prev_group_jobs > 1 &&
+	    verify_per_group_options(td, jobname))
+		goto err;
+
 	if (setup_rate(td))
 		goto err;
 
@@ -1577,29 +1637,44 @@ static int add_job(struct thread_data *td, const char *jobname, int job_add_num,
 			.log_type = IO_LOG_TYPE_LAT,
 			.log_offset = o->log_offset,
 			.log_prio = o->log_prio,
+			.log_issue_time = o->log_issue_time,
 			.log_gz = o->log_gz,
 			.log_gz_store = o->log_gz_store,
 		};
 		const char *pre = make_log_name(o->lat_log_file, o->name);
 		const char *suf;
 
+		if (o->log_issue_time && !o->log_offset) {
+			log_err("fio: log_issue_time option requires write_lat_log and log_offset options\n");
+			goto err;
+		}
+
 		if (p.log_gz_store)
 			suf = "log.fz";
 		else
 			suf = "log";
 
-		gen_log_name(logname, sizeof(logname), "lat", pre,
-				td->thread_number, suf, o->per_job_logs);
-		setup_log(&td->lat_log, &p, logname);
+		if (!o->disable_lat) {
+			gen_log_name(logname, sizeof(logname), "lat", pre,
+				     td->thread_number, suf, o->per_job_logs);
+			setup_log(&td->lat_log, &p, logname);
+		}
 
-		gen_log_name(logname, sizeof(logname), "slat", pre,
-				td->thread_number, suf, o->per_job_logs);
-		setup_log(&td->slat_log, &p, logname);
+		if (!o->disable_slat) {
+			gen_log_name(logname, sizeof(logname), "slat", pre,
+				     td->thread_number, suf, o->per_job_logs);
+			setup_log(&td->slat_log, &p, logname);
+		}
 
-		gen_log_name(logname, sizeof(logname), "clat", pre,
-				td->thread_number, suf, o->per_job_logs);
-		setup_log(&td->clat_log, &p, logname);
+		if (!o->disable_clat) {
+			gen_log_name(logname, sizeof(logname), "clat", pre,
+				     td->thread_number, suf, o->per_job_logs);
+			setup_log(&td->clat_log, &p, logname);
+		}
 
+	} else if (o->log_issue_time) {
+		log_err("fio: log_issue_time option requires write_lat_log and log_offset options\n");
+		goto err;
 	}
 
 	if (o->write_hist_log) {
@@ -1611,6 +1686,7 @@ static int add_job(struct thread_data *td, const char *jobname, int job_add_num,
 			.log_type = IO_LOG_TYPE_HIST,
 			.log_offset = o->log_offset,
 			.log_prio = o->log_prio,
+			.log_issue_time = o->log_issue_time,
 			.log_gz = o->log_gz,
 			.log_gz_store = o->log_gz_store,
 		};
@@ -1643,6 +1719,7 @@ static int add_job(struct thread_data *td, const char *jobname, int job_add_num,
 			.log_type = IO_LOG_TYPE_BW,
 			.log_offset = o->log_offset,
 			.log_prio = o->log_prio,
+			.log_issue_time = o->log_issue_time,
 			.log_gz = o->log_gz,
 			.log_gz_store = o->log_gz_store,
 		};
@@ -1675,6 +1752,7 @@ static int add_job(struct thread_data *td, const char *jobname, int job_add_num,
 			.log_type = IO_LOG_TYPE_IOPS,
 			.log_offset = o->log_offset,
 			.log_prio = o->log_prio,
+			.log_issue_time = o->log_issue_time,
 			.log_gz = o->log_gz,
 			.log_gz_store = o->log_gz_store,
 		};
@@ -1922,8 +2000,7 @@ static int __parse_jobs_ini(struct thread_data *td,
 	 * it's really 256 + small bit, 280 should suffice
 	 */
 	if (!nested) {
-		name = malloc(280);
-		memset(name, 0, 280);
+		name = calloc(1, 280);
 	}
 
 	opts = NULL;
@@ -2143,6 +2220,10 @@ static int __parse_jobs_ini(struct thread_data *td,
 		i++;
 	}
 
+	free(job_sections);
+	job_sections = NULL;
+	nr_job_sections = 0;
+
 	free(opts);
 out:
 	free(string);
@@ -2223,7 +2304,7 @@ static void usage(const char *name)
 	printf("  --minimal\t\tMinimal (terse) output\n");
 	printf("  --output-format=type\tOutput format (terse,json,json+,normal)\n");
 	printf("  --terse-version=type\tSet terse version output format"
-		" (default 3, or 2 or 4)\n");
+		" (default 3, or 2 or 4 or 5)\n");
 	printf("  --version\t\tPrint version info and exit\n");
 	printf("  --help\t\tPrint this page\n");
 	printf("  --cpuclock-test\tPerform test/validation of CPU clock\n");
@@ -2764,6 +2845,15 @@ int parse_cmd_line(int argc, char *argv[], int client_type)
 				break;
 
 			ret = fio_cmd_ioengine_option_parse(td, opt, val);
+
+			if (ret) {
+				if (td) {
+					put_job(td);
+					td = NULL;
+				}
+				do_exit++;
+				exit_val = 1;
+			}
 			break;
 		}
 		case 'w':
@@ -2791,6 +2881,12 @@ int parse_cmd_line(int argc, char *argv[], int client_type)
 			exit_val = 1;
 #endif
 			break;
+#ifdef WIN32
+		case 'N':
+			did_arg = true;
+			fio_server_internal_set(optarg);
+			break;
+#endif
 		case 'D':
 			if (pid_file)
 				free(pid_file);
@@ -2938,7 +3034,7 @@ int parse_cmd_line(int argc, char *argv[], int client_type)
 			log_err("%s: unrecognized option '%s'\n", argv[0],
 							argv[optind - 1]);
 			show_closest_option(argv[optind - 1]);
-			fallthrough;
+			fio_fallthrough;
 		default:
 			do_exit++;
 			exit_val = 1;

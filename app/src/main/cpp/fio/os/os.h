@@ -24,6 +24,7 @@ enum {
 	os_windows,
 	os_android,
 	os_dragonfly,
+	os_qnx,
 
 	os_nr,
 };
@@ -33,14 +34,14 @@ typedef enum {
 } cpu_features;
 
 /* IWYU pragma: begin_exports */
-#if defined(__ANDROID__)
-#include "os-android.h"
-#elif defined(__linux__)
+#if defined(__linux__)
 #include "os-linux.h"
 #elif defined(__FreeBSD__)
 #include "os-freebsd.h"
 #elif defined(__OpenBSD__)
 #include "os-openbsd.h"
+#elif defined(__QNX__)
+#include "os-qnx.h"
 #elif defined(__NetBSD__)
 #include "os-netbsd.h"
 #elif defined(__sun__)
@@ -118,23 +119,26 @@ extern int fio_cpus_split(os_cpu_mask_t *mask, unsigned int cpu);
 #endif
 
 #ifndef FIO_HAVE_IOPRIO_CLASS
+#define ioprio_class(prio)		0
 #define ioprio_value_is_class_rt(prio)	(false)
+#define IOPRIO_MIN_PRIO_CLASS		0
+#define IOPRIO_MAX_PRIO_CLASS		0
+#define ioprio_hint(prio)		0
+#define IOPRIO_MIN_PRIO_HINT		0
+#define IOPRIO_MAX_PRIO_HINT		0
 #endif
 #ifndef FIO_HAVE_IOPRIO
-#define ioprio_value(prioclass, prio)	(0)
-#define ioprio_set(which, who, prioclass, prio)	(0)
+#define ioprio_value(prioclass, prio, priohint)	(0)
+#define ioprio(ioprio)			0
+#define ioprio_set(which, who, prioclass, prio, priohint) (0)
+#define IOPRIO_MIN_PRIO			0
+#define IOPRIO_MAX_PRIO			0
 #endif
 
 #ifndef FIO_HAVE_ODIRECT
 #define OS_O_DIRECT			0
 #else
 #define OS_O_DIRECT			O_DIRECT
-#endif
-
-#ifdef OS_O_ATOMIC
-#define FIO_O_ATOMIC			OS_O_ATOMIC
-#else
-#define FIO_O_ATOMIC			0
 #endif
 
 #ifndef FIO_HAVE_HUGETLB
@@ -350,10 +354,12 @@ static inline unsigned long long get_fs_free_size(const char *path)
 }
 #endif
 
-#ifndef FIO_HAVE_CPU_ONLINE_SYSCONF
-static inline unsigned int cpus_online(void)
+#ifndef FIO_HAVE_CPU_CONF_SYSCONF
+static inline unsigned int cpus_configured(void)
 {
-	return sysconf(_SC_NPROCESSORS_ONLN);
+	int nr_cpus = sysconf(_SC_NPROCESSORS_CONF);
+
+	return nr_cpus >= 1 ? nr_cpus : 1;
 }
 #endif
 
@@ -361,7 +367,7 @@ static inline unsigned int cpus_online(void)
 #ifdef FIO_HAVE_CPU_AFFINITY
 static inline int CPU_COUNT(os_cpu_mask_t *mask)
 {
-	int max_cpus = cpus_online();
+	int max_cpus = cpus_configured();
 	int nr_cpus, i;
 
 	for (i = 0, nr_cpus = 0; i < max_cpus; i++)

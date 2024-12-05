@@ -74,6 +74,8 @@ static const char *fio_arch_strings[arch_nr] = {
 	"hppa",
 	"mips",
 	"aarch64",
+	"loongarch64",
+	"riscv64",
 	"generic"
 };
 
@@ -87,18 +89,18 @@ static void reset_io_counters(struct thread_data *td, int all)
 			td->this_io_bytes[ddir] = 0;
 			td->stat_io_blocks[ddir] = 0;
 			td->this_io_blocks[ddir] = 0;
-			td->rate_bytes[ddir] = 0;
-			td->rate_blocks[ddir] = 0;
+			td->last_rate_check_bytes[ddir] = 0;
+			td->last_rate_check_blocks[ddir] = 0;
 			td->bytes_done[ddir] = 0;
 			td->rate_io_issue_bytes[ddir] = 0;
 			td->rate_next_io_time[ddir] = 0;
 			td->last_usec[ddir] = 0;
 		}
+		td->bytes_verified = 0;
 	}
 
 	td->zone_bytes = 0;
 
-	td->last_was_sync = false;
 	td->rwmix_issues = 0;
 
 	/*
@@ -130,9 +132,13 @@ void clear_io_state(struct thread_data *td, int all)
 
 void reset_all_stats(struct thread_data *td)
 {
+	unsigned long long b;
 	int i;
 
 	reset_io_counters(td, 1);
+
+	b = ddir_rw_sum(td->thinktime_blocks_counter);
+	td->last_thinktime_blocks -= b;
 
 	for (i = 0; i < DDIR_RWDIR_CNT; i++) {
 		td->io_bytes[i] = 0;
@@ -142,11 +148,13 @@ void reset_all_stats(struct thread_data *td)
 		td->ts.runtime[i] = 0;
 	}
 
-	set_epoch_time(td, td->o.log_unix_epoch);
+	set_epoch_time(td, td->o.log_alternate_epoch_clock_id, td->o.job_start_clock_id);
 	memcpy(&td->start, &td->epoch, sizeof(td->epoch));
 	memcpy(&td->iops_sample_time, &td->epoch, sizeof(td->epoch));
 	memcpy(&td->bw_sample_time, &td->epoch, sizeof(td->epoch));
 	memcpy(&td->ss.prev_time, &td->epoch, sizeof(td->epoch));
+
+	td->last_thinktime = td->epoch;
 
 	lat_target_reset(td);
 	clear_rusage_stat(td);
@@ -239,13 +247,11 @@ void fio_mark_td_terminate(struct thread_data *td)
 
 void fio_terminate_threads(unsigned int group_id, unsigned int terminate)
 {
-	struct thread_data *td;
 	pid_t pid = getpid();
-	int i;
 
 	dprint(FD_PROCESS, "terminate group_id=%d\n", group_id);
 
-	for_each_td(td, i) {
+	for_each_td(td) {
 		if ((terminate == TERMINATE_GROUP && group_id == TERMINATE_ALL) ||
 		    (terminate == TERMINATE_GROUP && group_id == td->groupid) ||
 		    (terminate == TERMINATE_STONEWALL && td->runstate >= TD_RUNNING) ||
@@ -273,22 +279,20 @@ void fio_terminate_threads(unsigned int group_id, unsigned int terminate)
 					ops->terminate(td);
 			}
 		}
-	}
+	} end_for_each();
 }
 
 int fio_running_or_pending_io_threads(void)
 {
-	struct thread_data *td;
-	int i;
 	int nr_io_threads = 0;
 
-	for_each_td(td, i) {
+	for_each_td(td) {
 		if (td->io_ops_init && td_ioengine_flagged(td, FIO_NOIO))
 			continue;
 		nr_io_threads++;
 		if (td->runstate < TD_EXITED)
 			return 1;
-	}
+	} end_for_each();
 
 	if (!nr_io_threads)
 		return -1; /* we only had cpuio threads to begin with */
@@ -373,6 +377,7 @@ int initialize_fio(char *envp[])
 	compiletime_assert((offsetof(struct jobs_eta, m_rate) % 8) == 0, "m_rate");
 
 	compiletime_assert(__TD_F_LAST <= TD_ENG_FLAG_SHIFT, "TD_ENG_FLAG_SHIFT");
+	compiletime_assert((__TD_F_LAST + __FIO_IOENGINE_F_LAST) <= 8*sizeof(((struct thread_data *)0)->flags), "td->flags");
 	compiletime_assert(BSSPLIT_MAX <= ZONESPLIT_MAX, "bsssplit/zone max");
 
 	err = endian_check();

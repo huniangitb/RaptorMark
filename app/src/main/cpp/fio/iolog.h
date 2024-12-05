@@ -26,13 +26,23 @@ struct io_hist {
 	struct flist_head list;
 };
 
+enum {
+	IO_LOG_SAMPLE_AVG = 0,
+	IO_LOG_SAMPLE_MAX,
+	IO_LOG_SAMPLE_BOTH,
+};
+
+struct io_sample_value {
+	uint64_t val0;
+	uint64_t val1;
+};
 
 union io_sample_data {
-	uint64_t val;
+	struct io_sample_value val;
 	struct io_u_plat_entry *plat_entry;
 };
 
-#define sample_val(value) ((union io_sample_data) { .val = value })
+#define sample_val(value) ((union io_sample_data) { .val.val0 = value })
 #define sample_plat(plat) ((union io_sample_data) { .plat_entry = plat })
 
 /*
@@ -44,11 +54,15 @@ struct io_sample {
 	uint32_t __ddir;
 	uint16_t priority;
 	uint64_t bs;
+	uint64_t aux[];
 };
 
-struct io_sample_offset {
-	struct io_sample s;
-	uint64_t offset;
+/*
+ * Enumerate indexes of auxiliary log data in struct io_sample aux[] array
+ */
+enum {
+	IOS_AUX_OFFSET_INDEX,
+	IOS_AUX_ISSUE_TIME_INDEX,
 };
 
 enum {
@@ -110,6 +124,11 @@ struct io_log {
 	unsigned int log_prio;
 
 	/*
+	 * Log I/O issuing time
+	 */
+	unsigned int log_issue_time;
+
+	/*
 	 * Max size of log entries before a chunk is compressed
 	 */
 	unsigned int log_gz;
@@ -154,8 +173,18 @@ struct io_log {
  * If the bit following the upper bit is set, then we have the priority
  */
 #define LOG_PRIO_SAMPLE_BIT	0x40000000U
+/*
+ * If the bit following prioity sample vit is set, we report both avg and max
+ */
+#define LOG_AVG_MAX_SAMPLE_BIT	0x20000000U
+/*
+ * If the bit following AVG_MAX_SAMPLE_BIT is set, we report the issue time also
+ */
+#define LOG_ISSUE_TIME_SAMPLE_BIT	0x10000000U
 
-#define LOG_SAMPLE_BITS		(LOG_OFFSET_SAMPLE_BIT | LOG_PRIO_SAMPLE_BIT)
+#define LOG_SAMPLE_BITS		(LOG_OFFSET_SAMPLE_BIT | LOG_PRIO_SAMPLE_BIT |\
+					LOG_AVG_MAX_SAMPLE_BIT |\
+					LOG_ISSUE_TIME_SAMPLE_BIT)
 #define io_sample_ddir(io)	((io)->__ddir & ~LOG_SAMPLE_BITS)
 
 static inline void io_sample_set_ddir(struct io_log *log,
@@ -165,17 +194,22 @@ static inline void io_sample_set_ddir(struct io_log *log,
 	io->__ddir = ddir | log->log_ddir_mask;
 }
 
-static inline size_t __log_entry_sz(int log_offset)
+static inline size_t __log_entry_sz(bool log_offset, bool log_issue_time)
 {
+	size_t ret = sizeof(struct io_sample);
+
 	if (log_offset)
-		return sizeof(struct io_sample_offset);
-	else
-		return sizeof(struct io_sample);
+		ret += sizeof(uint64_t);
+
+	if (log_issue_time)
+		ret += sizeof(uint64_t);
+
+	return ret;
 }
 
 static inline size_t log_entry_sz(struct io_log *log)
 {
-	return __log_entry_sz(log->log_offset);
+	return __log_entry_sz(log->log_offset, log->log_issue_time);
 }
 
 static inline size_t log_sample_sz(struct io_log *log, struct io_logs *cur_log)
@@ -183,10 +217,12 @@ static inline size_t log_sample_sz(struct io_log *log, struct io_logs *cur_log)
 	return cur_log->nr_samples * log_entry_sz(log);
 }
 
-static inline struct io_sample *__get_sample(void *samples, int log_offset,
+static inline struct io_sample *__get_sample(void *samples, bool log_offset,
+					     bool log_issue_time,
 					     uint64_t sample)
 {
-	uint64_t sample_offset = sample * __log_entry_sz(log_offset);
+	uint64_t sample_offset = sample *
+		__log_entry_sz(log_offset, log_issue_time);
 	return (struct io_sample *) ((char *) samples + sample_offset);
 }
 
@@ -199,7 +235,8 @@ static inline struct io_sample *get_sample(struct io_log *iolog,
 					   struct io_logs *cur_log,
 					   uint64_t sample)
 {
-	return __get_sample(cur_log->log, iolog->log_offset, sample);
+	return __get_sample(cur_log->log,
+			    iolog->log_offset, iolog->log_issue_time, sample);
 }
 
 enum {
@@ -227,10 +264,8 @@ struct io_piece {
 	unsigned long len;
 	unsigned int flags;
 	enum fio_ddir ddir;
-	union {
-		unsigned long delay;
-		unsigned int file_action;
-	};
+	unsigned long delay;
+	unsigned int file_action;
 };
 
 /*
@@ -254,10 +289,13 @@ extern void trim_io_piece(const struct io_u *);
 extern void queue_io_piece(struct thread_data *, struct io_piece *);
 extern void prune_io_piece_log(struct thread_data *);
 extern void write_iolog_close(struct thread_data *);
+int64_t iolog_items_to_fetch(struct thread_data *td);
 extern int iolog_compress_init(struct thread_data *, struct sk_out *);
 extern void iolog_compress_exit(struct thread_data *);
 extern size_t log_chunk_sizes(struct io_log *);
 extern int init_io_u_buffers(struct thread_data *);
+extern unsigned long long delay_since_ttime(const struct thread_data *,
+					     unsigned long long);
 
 #ifdef CONFIG_ZLIB
 extern int iolog_file_inflate(const char *);
@@ -274,6 +312,7 @@ struct log_params {
 	int log_type;
 	int log_offset;
 	int log_prio;
+	int log_issue_time;
 	int log_gz;
 	int log_gz_store;
 	int log_compress;

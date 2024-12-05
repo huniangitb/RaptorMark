@@ -3,6 +3,7 @@
  */
 #include <unistd.h>
 #include <string.h>
+#include <stdlib.h>
 #ifdef CONFIG_VALGRIND_DEV
 #include <valgrind/drd.h>
 #else
@@ -214,8 +215,9 @@ static unsigned long thread_eta(struct thread_data *td)
 				perc = td->o.rwmix[DDIR_WRITE];
 
 			bytes_total += (bytes_total * perc) / 100;
-		} else
+		} else {
 			bytes_total <<= 1;
+		}
 	}
 
 	if (td->runstate == TD_RUNNING || td->runstate == TD_VERIFYING) {
@@ -227,8 +229,9 @@ static unsigned long thread_eta(struct thread_data *td)
 			perc = (double) bytes_done / (double) bytes_total;
 			if (perc > 1.0)
 				perc = 1.0;
-		} else
+		} else {
 			perc = 0.0;
+		}
 
 		if (td->o.time_based) {
 			if (timeout) {
@@ -375,13 +378,29 @@ bool eta_time_within_slack(unsigned int time)
 }
 
 /*
+ * These are the conditions under which we might be able to skip the eta
+ * calculation.
+ */
+static bool skip_eta()
+{
+	if (!(output_format & FIO_OUTPUT_NORMAL) && f_out == stdout)
+		return true;
+	if (temp_stall_ts || eta_print == FIO_ETA_NEVER)
+		return true;
+	if (!isatty(STDOUT_FILENO) && eta_print != FIO_ETA_ALWAYS)
+		return true;
+
+	return false;
+}
+
+/*
  * Print status of the jobs we know about. This includes rate estimates,
  * ETA, thread state, etc.
  */
-bool calc_thread_status(struct jobs_eta *je, int force)
+static bool calc_thread_status(struct jobs_eta *je, int force)
 {
-	struct thread_data *td;
-	int i, unified_rw_rep;
+	int unified_rw_rep;
+	bool any_td_in_ramp;
 	uint64_t rate_time, disp_time, bw_avg_time, *eta_secs;
 	unsigned long long io_bytes[DDIR_RWDIR_CNT] = {};
 	unsigned long long io_iops[DDIR_RWDIR_CNT] = {};
@@ -392,14 +411,12 @@ bool calc_thread_status(struct jobs_eta *je, int force)
 	static unsigned long long disp_io_iops[DDIR_RWDIR_CNT];
 	static struct timespec rate_prev_time, disp_prev_time;
 
-	if (!force) {
-		if (!(output_format & FIO_OUTPUT_NORMAL) &&
-		    f_out == stdout)
-			return false;
-		if (temp_stall_ts || eta_print == FIO_ETA_NEVER)
-			return false;
+	bool ret = true;
 
-		if (!isatty(STDOUT_FILENO) && (eta_print != FIO_ETA_ALWAYS))
+	if (!force && skip_eta()) {
+		if (write_bw_log)
+			ret = false;
+		else
 			return false;
 	}
 
@@ -408,18 +425,18 @@ bool calc_thread_status(struct jobs_eta *je, int force)
 	if (!ddir_rw_sum(disp_io_bytes))
 		fill_start_time(&disp_prev_time);
 
-	eta_secs = malloc(thread_number * sizeof(uint64_t));
-	memset(eta_secs, 0, thread_number * sizeof(uint64_t));
+	eta_secs = calloc(thread_number, sizeof(uint64_t));
 
 	je->elapsed_sec = (mtime_since_genesis() + 999) / 1000;
 
 	bw_avg_time = ULONG_MAX;
 	unified_rw_rep = 0;
-	for_each_td(td, i) {
+	for_each_td(td) {
 		unified_rw_rep += td->o.unified_rw_rep;
 		if (is_power_of_2(td->o.kb_base))
 			je->is_pow2 = 1;
 		je->unit_base = td->o.unit_base;
+		je->sig_figs = td->o.sig_figs;
 		if (td->o.bw_avg_time < bw_avg_time)
 			bw_avg_time = td->o.bw_avg_time;
 		if (td->runstate == TD_RUNNING || td->runstate == TD_VERIFYING
@@ -456,9 +473,9 @@ bool calc_thread_status(struct jobs_eta *je, int force)
 			je->nr_pending++;
 
 		if (je->elapsed_sec >= 3)
-			eta_secs[i] = thread_eta(td);
+			eta_secs[__td_index] = thread_eta(td);
 		else
-			eta_secs[i] = INT_MAX;
+			eta_secs[__td_index] = INT_MAX;
 
 		check_str_update(td);
 
@@ -475,26 +492,26 @@ bool calc_thread_status(struct jobs_eta *je, int force)
 				}
 			}
 		}
-	}
+	} end_for_each();
 
 	if (exitall_on_terminate) {
 		je->eta_sec = INT_MAX;
-		for_each_td(td, i) {
-			if (eta_secs[i] < je->eta_sec)
-				je->eta_sec = eta_secs[i];
-		}
+		for_each_td_index() {
+			if (eta_secs[__td_index] < je->eta_sec)
+				je->eta_sec = eta_secs[__td_index];
+		} end_for_each();
 	} else {
 		unsigned long eta_stone = 0;
 
 		je->eta_sec = 0;
-		for_each_td(td, i) {
+		for_each_td(td) {
 			if ((td->runstate == TD_NOT_CREATED) && td->o.stonewall)
-				eta_stone += eta_secs[i];
+				eta_stone += eta_secs[__td_index];
 			else {
-				if (eta_secs[i] > je->eta_sec)
-					je->eta_sec = eta_secs[i];
+				if (eta_secs[__td_index] > je->eta_sec)
+					je->eta_sec = eta_secs[__td_index];
 			}
-		}
+		} end_for_each();
 		je->eta_sec += eta_stone;
 	}
 
@@ -503,7 +520,11 @@ bool calc_thread_status(struct jobs_eta *je, int force)
 	fio_gettime(&now, NULL);
 	rate_time = mtime_since(&rate_prev_time, &now);
 
-	if (write_bw_log && rate_time > bw_avg_time && !in_ramp_time(td)) {
+	any_td_in_ramp = false;
+	for_each_td(td) {
+		any_td_in_ramp |= in_ramp_time(td);
+	} end_for_each();
+	if (write_bw_log && rate_time > bw_avg_time && !any_td_in_ramp) {
 		calc_rate(unified_rw_rep, rate_time, io_bytes, rate_io_bytes,
 				je->rate);
 		memcpy(&rate_prev_time, &now, sizeof(now));
@@ -529,7 +550,7 @@ bool calc_thread_status(struct jobs_eta *je, int force)
 	je->nr_threads = thread_number;
 	update_condensed_str(__run_str, run_str);
 	memcpy(je->run_str, run_str, strlen(run_str));
-	return true;
+	return ret;
 }
 
 static int gen_eta_str(struct jobs_eta *je, char *p, size_t left,
@@ -600,9 +621,9 @@ void display_thread_status(struct jobs_eta *je)
 		char *tr, *mr;
 
 		mr = num2str(je->m_rate[0] + je->m_rate[1] + je->m_rate[2],
-				je->sig_figs, 0, je->is_pow2, N2S_BYTEPERSEC);
+				je->sig_figs, 1, je->is_pow2, N2S_BYTEPERSEC);
 		tr = num2str(je->t_rate[0] + je->t_rate[1] + je->t_rate[2],
-				je->sig_figs, 0, je->is_pow2, N2S_BYTEPERSEC);
+				je->sig_figs, 1, je->is_pow2, N2S_BYTEPERSEC);
 
 		p += sprintf(p, ", %s-%s", mr, tr);
 		free(tr);
@@ -686,10 +707,9 @@ struct jobs_eta *get_jobs_eta(bool force, size_t *size)
 		return NULL;
 
 	*size = sizeof(*je) + THREAD_RUNSTR_SZ + 8;
-	je = malloc(*size);
+	je = calloc(1, *size);
 	if (!je)
 		return NULL;
-	memset(je, 0, *size);
 
 	if (!calc_thread_status(je, force)) {
 		free(je);
@@ -706,10 +726,10 @@ void print_thread_status(void)
 	size_t size;
 
 	je = get_jobs_eta(false, &size);
-	if (je)
+	if (je) {
 		display_thread_status(je);
-
-	free(je);
+		free(je);
+	}
 }
 
 void print_status_init(int thr_number)

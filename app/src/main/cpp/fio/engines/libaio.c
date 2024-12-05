@@ -72,87 +72,6 @@ static struct fio_option options[] = {
 		.category = FIO_OPT_C_ENGINE,
 		.group	= FIO_OPT_G_LIBAIO,
 	},
-#ifdef FIO_HAVE_IOPRIO_CLASS
-	{
-		.name	= "cmdprio_percentage",
-		.lname	= "high priority percentage",
-		.type	= FIO_OPT_INT,
-		.off1	= offsetof(struct libaio_options,
-				   cmdprio_options.percentage[DDIR_READ]),
-		.off2	= offsetof(struct libaio_options,
-				   cmdprio_options.percentage[DDIR_WRITE]),
-		.minval	= 0,
-		.maxval	= 100,
-		.help	= "Send high priority I/O this percentage of the time",
-		.category = FIO_OPT_C_ENGINE,
-		.group	= FIO_OPT_G_LIBAIO,
-	},
-	{
-		.name	= "cmdprio_class",
-		.lname	= "Asynchronous I/O priority class",
-		.type	= FIO_OPT_INT,
-		.off1	= offsetof(struct libaio_options,
-				   cmdprio_options.class[DDIR_READ]),
-		.off2	= offsetof(struct libaio_options,
-				   cmdprio_options.class[DDIR_WRITE]),
-		.help	= "Set asynchronous IO priority class",
-		.minval	= IOPRIO_MIN_PRIO_CLASS + 1,
-		.maxval	= IOPRIO_MAX_PRIO_CLASS,
-		.interval = 1,
-		.category = FIO_OPT_C_ENGINE,
-		.group	= FIO_OPT_G_LIBAIO,
-	},
-	{
-		.name	= "cmdprio",
-		.lname	= "Asynchronous I/O priority level",
-		.type	= FIO_OPT_INT,
-		.off1	= offsetof(struct libaio_options,
-				   cmdprio_options.level[DDIR_READ]),
-		.off2	= offsetof(struct libaio_options,
-				   cmdprio_options.level[DDIR_WRITE]),
-		.help	= "Set asynchronous IO priority level",
-		.minval	= IOPRIO_MIN_PRIO,
-		.maxval	= IOPRIO_MAX_PRIO,
-		.interval = 1,
-		.category = FIO_OPT_C_ENGINE,
-		.group	= FIO_OPT_G_LIBAIO,
-	},
-	{
-		.name   = "cmdprio_bssplit",
-		.lname  = "Priority percentage block size split",
-		.type   = FIO_OPT_STR_STORE,
-		.off1   = offsetof(struct libaio_options,
-				   cmdprio_options.bssplit_str),
-		.help   = "Set priority percentages for different block sizes",
-		.category = FIO_OPT_C_ENGINE,
-		.group	= FIO_OPT_G_LIBAIO,
-	},
-#else
-	{
-		.name	= "cmdprio_percentage",
-		.lname	= "high priority percentage",
-		.type	= FIO_OPT_UNSUPPORTED,
-		.help	= "Your platform does not support I/O priority classes",
-	},
-	{
-		.name	= "cmdprio_class",
-		.lname	= "Asynchronous I/O priority class",
-		.type	= FIO_OPT_UNSUPPORTED,
-		.help	= "Your platform does not support I/O priority classes",
-	},
-	{
-		.name	= "cmdprio",
-		.lname	= "Asynchronous I/O priority level",
-		.type	= FIO_OPT_UNSUPPORTED,
-		.help	= "Your platform does not support I/O priority classes",
-	},
-	{
-		.name   = "cmdprio_bssplit",
-		.lname  = "Priority percentage block size split",
-		.type	= FIO_OPT_UNSUPPORTED,
-		.help	= "Your platform does not support I/O priority classes",
-	},
-#endif
 	{
 		.name	= "nowait",
 		.lname	= "RWF_NOWAIT",
@@ -162,6 +81,7 @@ static struct fio_option options[] = {
 		.category = FIO_OPT_C_ENGINE,
 		.group	= FIO_OPT_G_LIBAIO,
 	},
+	CMDPRIO_OPTIONS(struct libaio_options, FIO_OPT_G_LIBAIO),
 	{
 		.name	= NULL,
 	},
@@ -190,6 +110,10 @@ static int fio_libaio_prep(struct thread_data *td, struct io_u *io_u)
 		io_prep_pwrite(iocb, f->fd, io_u->xfer_buf, io_u->xfer_buflen, io_u->offset);
 		if (o->nowait)
 			iocb->aio_rw_flags |= RWF_NOWAIT;
+#ifdef FIO_HAVE_RWF_ATOMIC
+		if (td->o.oatomic)
+			iocb->aio_rw_flags |= RWF_ATOMIC;
+#endif
 	} else if (ddir_sync(io_u->ddir))
 		io_prep_fsync(iocb, f->fd);
 
@@ -288,14 +212,16 @@ static int fio_libaio_getevents(struct thread_data *td, unsigned int min,
 		    && actual_min == 0
 		    && ((struct aio_ring *)(ld->aio_ctx))->magic
 				== AIO_RING_MAGIC) {
-			r = user_io_getevents(ld->aio_ctx, max,
+			r = user_io_getevents(ld->aio_ctx, max - events,
 				ld->aio_events + events);
 		} else {
 			r = io_getevents(ld->aio_ctx, actual_min,
-				max, ld->aio_events + events, lt);
+				max - events, ld->aio_events + events, lt);
 		}
-		if (r > 0)
+		if (r > 0) {
 			events += r;
+			actual_min -= min((unsigned int)events, actual_min);
+		}
 		else if ((min && r == 0) || r == -EAGAIN) {
 			fio_libaio_commit(td);
 			if (actual_min)
@@ -368,6 +294,12 @@ static void fio_libaio_queued(struct thread_data *td, struct io_u **io_us,
 		memcpy(&io_u->issue_time, &now, sizeof(now));
 		io_u_queued(td, io_u);
 	}
+
+	/*
+	 * only used for iolog
+	 */
+	if (td->o.read_iolog_file)
+		memcpy(&td->last_issue, &now, sizeof(now));
 }
 
 static int fio_libaio_commit(struct thread_data *td)
@@ -511,7 +443,9 @@ static int fio_libaio_init(struct thread_data *td)
 FIO_STATIC struct ioengine_ops ioengine = {
 	.name			= "libaio",
 	.version		= FIO_IOOPS_VERSION,
-	.flags			= FIO_ASYNCIO_SYNC_TRIM,
+	.flags			= FIO_ASYNCIO_SYNC_TRIM |
+					FIO_ASYNCIO_SETS_ISSUE_TIME |
+					FIO_ATOMICWRITES,
 	.init			= fio_libaio_init,
 	.post_init		= fio_libaio_post_init,
 	.prep			= fio_libaio_prep,
