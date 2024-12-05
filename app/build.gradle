@@ -34,8 +34,8 @@ android {
         applicationId "io.github.devriesl.raptormark"
         minSdkVersion 30
         targetSdkVersion 35
-        versionCode 7
-        versionName "1.1.0"
+        versionCode 8
+        versionName "1.2.0"
 
         ndk {
             //noinspection ChromeOsAbiSupport
