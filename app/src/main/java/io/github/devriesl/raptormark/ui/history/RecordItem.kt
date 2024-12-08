@@ -19,7 +19,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.devriesl.raptormark.R
 import io.github.devriesl.raptormark.data.TestRecord
-import io.github.devriesl.raptormark.data.isMBW
 import io.github.devriesl.raptormark.ui.benchmark.TestItem
 import java.sql.Timestamp
 import java.text.SimpleDateFormat
@@ -65,9 +64,6 @@ fun RecordItem(
             Column {
                 testRecord.results.entries.forEachIndexed { index, (testCase, result) ->
                     TestItem(testCase, result)
-                    if (testCase.isMBW()) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
                     if (index < testRecord.results.size - 1) {
                         Divider(modifier = Modifier.padding(horizontal = 32.dp))
                     } else {

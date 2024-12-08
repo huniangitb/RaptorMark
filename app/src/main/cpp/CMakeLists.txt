@@ -4,8 +4,6 @@ project("raptormark")
 add_subdirectory(cjson)
 add_subdirectory(libaio)
 add_subdirectory(fio)
-add_subdirectory(mbw)
-add_subdirectory(core-latency)
 
 add_library(raptormark-jni SHARED raptormark-jni.cpp helper.cpp)
 

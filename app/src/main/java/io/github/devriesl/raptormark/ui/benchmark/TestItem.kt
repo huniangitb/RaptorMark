@@ -9,23 +9,6 @@ fun TestItem(
     result: String?
 ) {
     when {
-        testCase.isMBW() -> {
-            val testResult = result?.let { MBWTest.parseResult(it) }
-            MBWTestItem(
-                title = testCase.title,
-                bandwidth = testResult?.bandwidth,
-                vectorBandwidth = testResult?.vectorBandwidth,
-                isAppPerf = testCase.isMBWApp()
-            )
-        }
-        testCase.isCoreLatency() -> {
-            val testResult = result?.let { CoreLatencyTest.parseResult(it) }
-            CoreLatencyTestItem(
-                title = testCase.title,
-                latencies = testResult?.latenciesMap,
-                progress = testResult?.progress
-            )
-        }
         testCase.isFIO() -> {
             val testResult = result?.let { FIOTest.parseResult(it) }
             FIOTestItem(

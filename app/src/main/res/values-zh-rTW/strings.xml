@@ -11,8 +11,6 @@
     <string name="stop_button_label">停止</string>
     <string name="start_button_desc">開始效能測試</string>
     <string name="stop_button_desc">停止效能測試</string>
-    <string name="mbw_test_title">記憶體頻寬</string>
-    <string name="core_latency_test_title">核間延遲</string>
     <string name="fio_test_title">儲存吞吐量</string>
     <string name="seq_rd_test_title">順序讀取</string>
     <string name="seq_wr_test_title">順序寫入</string>
@@ -20,10 +18,6 @@
     <string name="rand_wr_test_title">隨機寫入</string>
     <string name="app_perf_title">應用程式效能</string>
     <string name="rand_4n_lat_title">99.99% 延遲</string>
-    <string name="non_vector_title">非向量</string>
-    <string name="neon_vector_title">NEON 向量</string>
-    <string name="memset_title">memset 函數</string>
-    <string name="memcpy_title">memcpy 函數</string>
 
     <!-- Benchmark result formats -->
     <string name="sum_of_bw_test_result_format">%1$d MB/s</string>
@@ -35,8 +29,6 @@
     <!-- Setting resources -->
     <string name="dismiss_button_content">取消</string>
     <string name="apply_button_content">套用</string>
-    <string name="measurement_time_title">測量時間</string>
-    <string name="measurement_time_desc">測試記憶體頻寬效能所需的時間。</string>
     <string name="target_path_title">目標路徑</string>
     <string name="target_path_desc">用於效能測試的檔案目錄路徑。</string>
     <string name="target_path_default">應用程式預設</string>

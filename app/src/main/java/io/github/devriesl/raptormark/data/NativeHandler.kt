@@ -12,8 +12,6 @@ object NativeHandler {
 
     private val listeners: HashSet<NativeListener> = hashSetOf()
 
-    external fun native_MBWTest(jsonCommand: String): Int
-    external fun native_CoreLatencyTest(jsonCommand: String): Int
     external fun native_FIOTest(jsonCommand: String): Int
     external fun native_ListEngines(): String
 

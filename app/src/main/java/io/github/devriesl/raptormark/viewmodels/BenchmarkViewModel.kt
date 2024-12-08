@@ -72,20 +72,6 @@ class BenchmarkViewModel @Inject constructor(
     private fun updateTestItems(isInitialized: Boolean = true): List<BenchmarkTest> {
         return TestCases.values().mapNotNull { testCase ->
             when {
-                testCase.isMBW() && benchmarkState.enableMBWTest -> {
-                    if (isInitialized) {
-                        testItems.find { it.testCase == testCase }
-                    } else {
-                        null
-                    } ?: MBWTest(testCase, settingSharedPrefs)
-                }
-                testCase.isCoreLatency() && benchmarkState.enableCoreLatencyTest -> {
-                    if (isInitialized) {
-                        testItems.find { it.testCase == testCase }
-                    } else {
-                        null
-                    } ?: CoreLatencyTest(testCase, settingSharedPrefs)
-                }
                 testCase.isFIO() && benchmarkState.enableFIOTest -> {
                     if (isInitialized) {
                         testItems.find { it.testCase == testCase }
