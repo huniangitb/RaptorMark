@@ -11,7 +11,6 @@ object Constants {
     const val IO_ENGINE_OPT_NAME = "ioengine"
     const val NUM_THREADS_OPT_NAME = "numjobs"
 
-    const val DEFAULT_MEASUREMENT_TIME_VALUE = "faster"
     const val DEFAULT_IO_DEPTH_VALUE = "4"
     const val DEFAULT_RUNTIME_LIMIT_VALUE = "60"
     const val DEFAULT_SEQ_BLOCK_SIZE_VALUE = "1024k"
@@ -27,8 +26,6 @@ object Constants {
     const val CONSTANT_ETA_PRINT_VALUE = "always"
     const val CONSTANT_OUTPUT_FORMAT_VALUE = "json"
 
-    const val MBW_APP_PERF_VALUE = "app"
-    const val CORE_LATENCY_VALUE = "core"
     const val IO_TYPE_SEQ_RD_VALUE = "read"
     const val IO_TYPE_SEQ_WR_VALUE = "write"
     const val IO_TYPE_RAND_RD_VALUE = "randread"

@@ -10,7 +10,7 @@ fun TestItem(
 ) {
     when {
         testCase.isFIO() -> {
-            val testResult = result?.let { FIOTest.parseResult(it) }
+            val testResult = result?.let { BenchmarkTest.parseResult(it) }
             FIOTestItem(
                 title = testCase.title,
                 bandwidth = testResult?.bandwidth,

@@ -3,40 +3,34 @@ package io.github.devriesl.raptormark.data
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import io.github.devriesl.raptormark.Constants
+import org.json.JSONArray
 import org.json.JSONObject
-import java.io.IOException
-import kotlin.reflect.full.companionObject
-import kotlin.reflect.full.companionObjectInstance
-import kotlin.reflect.full.declaredFunctions
+import java.io.File
 
-abstract class BenchmarkTest(
+class BenchmarkTest(
     val testCase: TestCases,
     val settingSharedPrefs: SettingSharedPrefs
 ) {
-    private val nativeListener = object : NativeListener {
-        override fun onTestResult(result: String) {
-            listOfNotNull(nativeResult, result).joinToString(System.lineSeparator())
-            this@BenchmarkTest::class.companionObject?.declaredFunctions?.find {
-                it.name == parseResultMethodName
-            }?.let { parseResultMethod ->
-                testResult = parseResultMethod.call(
-                    this@BenchmarkTest::class.companionObjectInstance,
-                    nativeResult
-                ) as? TestResult
-            }
-        }
-    }
+    private val filePath = getRandomFilePath()
 
     var testResult: TestResult? by mutableStateOf(null)
         private set
 
     var nativeResult: String? = null
 
-    abstract fun nativeTest(jsonCommand: String): Int
+    val nativeListener: NativeListener = object : NativeListener {
+        override fun onTestResult(result: String) {
+            nativeResult = listOfNotNull(nativeResult, result).joinToString(System.lineSeparator())
+            testResult = parseResult(nativeResult ?: return)
+        }
+    }
 
-    abstract fun testOptionsBuilder(): String
+    fun nativeTest(jsonCommand: String): Int {
+        return NativeHandler.native_FIOTest(jsonCommand)
+    }
 
-    open fun runTest(): String? {
+    fun runTest(): String? {
         nativeResult = null
 
         NativeHandler.registerListener(nativeListener)
@@ -44,9 +38,8 @@ abstract class BenchmarkTest(
         val ret = nativeTest(options)
         NativeHandler.unregisterListener(nativeListener)
 
-        if (ret != 0) {
-            throw IOException("$ret")
-        }
+        val testFile = File(filePath)
+        if (testFile.exists()) testFile.delete()
 
         return nativeResult
     }
@@ -58,7 +51,116 @@ abstract class BenchmarkTest(
         return jsonOption
     }
 
+    fun testOptionsBuilder(): String {
+        val root = JSONObject()
+        val options = JSONArray()
+
+        root.put("shortopts", false)
+
+        options.put(createOption(Constants.NEW_JOB_OPT_NAME, testCase.name))
+        options.put(createOption(Constants.FILE_PATH_OPT_NAME, filePath))
+        options.put(createOption(Constants.IO_TYPE_OPT_NAME, testCase.type))
+        options.put(
+            createOption(
+                Constants.IO_DEPTH_OPT_NAME,
+                SettingOptions.IO_DEPTH.dataImpl.getValue(settingSharedPrefs)
+            )
+        )
+        options.put(
+            createOption(
+                Constants.RUNTIME_OPT_NAME,
+                SettingOptions.RUNTIME_LIMIT.dataImpl.getValue(settingSharedPrefs)
+            )
+        )
+        options.put(
+            createOption(
+                Constants.BLOCK_SIZE_OPT_NAME,
+                if (testCase.isFIORand()) {
+                    SettingOptions.RAND_BLOCK_SIZE.dataImpl.getValue(settingSharedPrefs)
+                } else {
+                    SettingOptions.SEQ_BLOCK_SIZE.dataImpl.getValue(settingSharedPrefs)
+                }
+            )
+        )
+        options.put(
+            createOption(
+                Constants.IO_SIZE_OPT_NAME,
+                SettingOptions.IO_SIZE.dataImpl.getValue(settingSharedPrefs)
+            )
+        )
+        options.put(createOption(Constants.DIRECT_IO_OPT_NAME, Constants.CONSTANT_DIRECT_IO_VALUE))
+        options.put(
+            createOption(
+                Constants.IO_ENGINE_OPT_NAME,
+                SettingOptions.IO_ENGINE.dataImpl.getValue(settingSharedPrefs)
+            )
+        )
+        options.put(
+            createOption(
+                Constants.NUM_THREADS_OPT_NAME,
+                SettingOptions.NUM_THREADS.dataImpl.getValue(settingSharedPrefs)
+            )
+        )
+
+        options.put(createOption(Constants.ETA_PRINT_OPT_NAME, Constants.CONSTANT_ETA_PRINT_VALUE))
+        options.put(
+            createOption(
+                Constants.OUTPUT_FORMAT_OPT_NAME,
+                Constants.CONSTANT_OUTPUT_FORMAT_VALUE
+            )
+        )
+
+        root.put("options", options)
+
+        return root.toString()
+    }
+
+    private fun getRandomFilePath(): String {
+        val randomSuffix = List(FILE_SUFFIX_LENGTH) {
+            (('a'..'z') + ('A'..'Z') + ('0'..'9')).random()
+        }.joinToString("")
+
+        return settingSharedPrefs.getTestDirPath() + "/" + testCase.name + randomSuffix
+    }
+
     companion object {
-        const val parseResultMethodName = "parseResult"
+        const val FILE_SUFFIX_LENGTH = 8
+
+        @JvmStatic
+        fun parseResult(result: String): TestResult.FIO {
+            var jobsId: String? = null
+            var jobsRw = String()
+            var sumOfBwBytes: Long = 0
+            var sumOf4NClatNs: Long = 0
+
+            val jsonResult = JSONObject(result)
+            val jobsArray = jsonResult.getJSONArray("jobs")
+            for (i in 0 until jobsArray.length()) {
+                val jobObject: JSONObject = jobsArray.getJSONObject(i)
+
+                if (jobsId.isNullOrEmpty()) {
+                    jobsId = jobObject.getString("jobname")
+                    when {
+                        jobsId.contains("RD") -> {
+                            jobsRw = "read"
+                        }
+                        jobsId.contains("WR") -> {
+                            jobsRw = "write"
+                        }
+                    }
+                }
+
+                val rwObject: JSONObject = jobObject.getJSONObject(jobsRw)
+                sumOfBwBytes += rwObject.getLong("bw_bytes")
+                val clatObject: JSONObject = rwObject.getJSONObject("clat_ns")
+                val percentileObject: JSONObject = clatObject.getJSONObject("percentile")
+                sumOf4NClatNs += percentileObject.getLong("99.990000")
+            }
+
+            val sumOfBw = (sumOfBwBytes / 1000 / 1000).toInt()
+            val avgOf4NClat = (sumOf4NClatNs / jobsArray.length() / 1000).toInt()
+
+            return TestResult.FIO(sumOfBw, avgOf4NClat)
+        }
     }
 }

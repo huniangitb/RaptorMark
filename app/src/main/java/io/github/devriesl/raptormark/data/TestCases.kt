@@ -1,12 +1,10 @@
 package io.github.devriesl.raptormark.data
 
 import androidx.annotation.StringRes
-import io.github.devriesl.raptormark.Constants.CORE_LATENCY_VALUE
 import io.github.devriesl.raptormark.Constants.IO_TYPE_RAND_RD_VALUE
 import io.github.devriesl.raptormark.Constants.IO_TYPE_RAND_WR_VALUE
 import io.github.devriesl.raptormark.Constants.IO_TYPE_SEQ_RD_VALUE
 import io.github.devriesl.raptormark.Constants.IO_TYPE_SEQ_WR_VALUE
-import io.github.devriesl.raptormark.Constants.MBW_APP_PERF_VALUE
 import io.github.devriesl.raptormark.R
 import kotlinx.serialization.Serializable
 

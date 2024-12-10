@@ -60,31 +60,23 @@ fun BenchmarkContent(
                 .fillMaxHeight()
         ) {
             item {
-                ExpandableCard(
-                    expanded = state.enableFIOTest,
-                    onExpandedChange = { benchmarkViewModel.enableFIO(it)},
-                    title = R.string.fio_test_title
-                ) {
+                val fioItems = remember(benchmarkViewModel.testItems) {
+                    benchmarkViewModel.testItems.filter { it.testCase.isFIO() }
+                }
+                fioItems.forEachIndexed { index, testItem ->
+                    val testResult = testItem.testResult
 
-                    val fioItems = remember(benchmarkViewModel.testItems) {
-                        benchmarkViewModel.testItems.filter { it.testCase.isFIO() }
-                    }
-                    fioItems.forEachIndexed { index, testItem ->
-                        val testResult = testItem.testResult
-
-                        Column {
-                            FIOTestItem(
-                                title = testItem.testCase.title,
-                                bandwidth = remember(testResult) { (testResult as? TestResult.FIO)?.bandwidth },
-                                showLatency = remember(testItem) { testItem.testCase.isFIORand() },
-                                latency = remember(testResult) { (testResult as? TestResult.FIO)?.latency }
-                            )
-                            if (index != fioItems.lastIndex) {
-                                Divider(modifier = Modifier.padding(horizontal = 32.dp))
-                            }
+                    Column {
+                        FIOTestItem(
+                            title = testItem.testCase.title,
+                            bandwidth = remember(testResult) { (testResult as? TestResult.FIO)?.bandwidth },
+                            showLatency = remember(testItem) { testItem.testCase.isFIORand() },
+                            latency = remember(testResult) { (testResult as? TestResult.FIO)?.latency }
+                        )
+                        if (index != fioItems.lastIndex) {
+                            Divider(modifier = Modifier.padding(horizontal = 32.dp))
                         }
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
                 }
             }
         }

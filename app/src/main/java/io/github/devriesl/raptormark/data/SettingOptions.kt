@@ -11,7 +11,6 @@ import io.github.devriesl.raptormark.BuildConfig
 import io.github.devriesl.raptormark.Constants.DEFAULT_IO_DEPTH_VALUE
 import io.github.devriesl.raptormark.Constants.DEFAULT_IO_ENGINE_VALUE
 import io.github.devriesl.raptormark.Constants.DEFAULT_IO_SIZE_VALUE
-import io.github.devriesl.raptormark.Constants.DEFAULT_MEASUREMENT_TIME_VALUE
 import io.github.devriesl.raptormark.Constants.DEFAULT_NUM_THREADS_VALUE
 import io.github.devriesl.raptormark.Constants.DEFAULT_RAND_BLOCK_SIZE_VALUE
 import io.github.devriesl.raptormark.Constants.DEFAULT_RUNTIME_LIMIT_VALUE

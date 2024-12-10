@@ -51,43 +51,17 @@ class BenchmarkViewModel @Inject constructor(
         forceStop = true
     }
 
-    fun enableMBW(enable: Boolean) {
-        if (benchmarkState.running) return
-        benchmarkState = benchmarkState.copy(enableMBWTest = enable)
-        testItems = updateTestItems()
-    }
-
-    fun enableCoreLatency(enable: Boolean) {
-        if (benchmarkState.running) return
-        benchmarkState = benchmarkState.copy(enableCoreLatencyTest = enable)
-        testItems = updateTestItems()
-    }
-
-    fun enableFIO(enable: Boolean) {
-        if (benchmarkState.running) return
-        benchmarkState = benchmarkState.copy(enableFIOTest = enable)
-        testItems = updateTestItems()
-    }
-
     private fun updateTestItems(isInitialized: Boolean = true): List<BenchmarkTest> {
-        return TestCases.values().mapNotNull { testCase ->
-            when {
-                testCase.isFIO() && benchmarkState.enableFIOTest -> {
-                    if (isInitialized) {
-                        testItems.find { it.testCase == testCase }
-                    } else {
-                        null
-                    } ?: FIOTest(testCase, settingSharedPrefs)
-                }
-                else -> null
-            }
+        return TestCases.entries.map { testCase ->
+            if (isInitialized) {
+                testItems.find { it.testCase == testCase }
+            } else {
+                null
+            } ?: BenchmarkTest(testCase, settingSharedPrefs)
         }
     }
 }
 
 data class BenchmarkState(
-    val running: Boolean = false,
-    val enableMBWTest: Boolean = true,
-    val enableCoreLatencyTest: Boolean = true,
-    val enableFIOTest: Boolean = true
+    val running: Boolean = false
 )
