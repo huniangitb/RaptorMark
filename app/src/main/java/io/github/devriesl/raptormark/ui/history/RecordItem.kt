@@ -10,6 +10,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -18,7 +19,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.devriesl.raptormark.R
+import io.github.devriesl.raptormark.data.BenchmarkTest
 import io.github.devriesl.raptormark.data.TestRecord
+import io.github.devriesl.raptormark.data.isSeqRw
 import io.github.devriesl.raptormark.ui.benchmark.TestItem
 import java.sql.Timestamp
 import java.text.SimpleDateFormat
@@ -63,9 +66,13 @@ fun RecordItem(
         AnimatedVisibility(expandState) {
             Column {
                 testRecord.results.entries.forEachIndexed { index, (testCase, result) ->
-                    TestItem(testCase, result)
+                    val testResult = result.let { BenchmarkTest.parseResult(it) }
+                    TestItem(
+                        case = testCase,
+                        result = testResult
+                    )
                     if (index < testRecord.results.size - 1) {
-                        Divider(modifier = Modifier.padding(horizontal = 32.dp))
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 32.dp))
                     } else {
                         Spacer(modifier = Modifier.height(8.dp))
                     }

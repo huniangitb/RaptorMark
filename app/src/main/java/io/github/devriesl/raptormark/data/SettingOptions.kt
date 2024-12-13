@@ -8,10 +8,8 @@ import androidx.annotation.StringRes
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.text.input.KeyboardType
 import io.github.devriesl.raptormark.BuildConfig
-import io.github.devriesl.raptormark.Constants.DEFAULT_IO_DEPTH_VALUE
 import io.github.devriesl.raptormark.Constants.DEFAULT_IO_ENGINE_VALUE
 import io.github.devriesl.raptormark.Constants.DEFAULT_IO_SIZE_VALUE
-import io.github.devriesl.raptormark.Constants.DEFAULT_NUM_THREADS_VALUE
 import io.github.devriesl.raptormark.Constants.DEFAULT_RAND_BLOCK_SIZE_VALUE
 import io.github.devriesl.raptormark.Constants.DEFAULT_RUNTIME_LIMIT_VALUE
 import io.github.devriesl.raptormark.Constants.DEFAULT_SEQ_BLOCK_SIZE_VALUE
@@ -68,33 +66,6 @@ enum class SettingOptions(
             } else {
                 settingSharedPrefs.setTestDirPath(String())
             }
-        }
-    }),
-    IO_DEPTH(R.string.io_depth_title, R.string.io_depth_desc, object : ISettingData {
-        override fun getValue(settingSharedPrefs: SettingSharedPrefs): String {
-            return settingSharedPrefs.getConfig(IO_DEPTH.name, DEFAULT_IO_DEPTH_VALUE)
-        }
-
-        override fun onDialogContent(
-            settingSharedPrefs: SettingSharedPrefs,
-            itemIndex: Int,
-            closeDialog: (Int, String?) -> Unit
-        ): @Composable () -> Unit {
-            val currentValue = settingSharedPrefs.getConfig(IO_DEPTH.name, DEFAULT_IO_DEPTH_VALUE)
-            return {
-                TextInputDialog(
-                    title = IO_DEPTH.title,
-                    defaultValue = DEFAULT_IO_DEPTH_VALUE,
-                    currentValue = currentValue,
-                    keyboardType = KeyboardType.Number,
-                    itemIndex = itemIndex,
-                    closeDialog = closeDialog
-                )
-            }
-        }
-
-        override fun setDialogResult(settingSharedPrefs: SettingSharedPrefs, result: String) {
-            settingSharedPrefs.setConfig(IO_DEPTH.name, result)
         }
     }),
     RUNTIME_LIMIT(R.string.runtime_limit_title, R.string.runtime_limit_desc, object : ISettingData {
@@ -260,34 +231,6 @@ enum class SettingOptions(
 
         override fun setDialogResult(settingSharedPrefs: SettingSharedPrefs, result: String) {
             settingSharedPrefs.setConfig(IO_ENGINE.name, result)
-        }
-    }),
-    NUM_THREADS(R.string.num_threads_title, R.string.num_threads_desc, object : ISettingData {
-        override fun getValue(settingSharedPrefs: SettingSharedPrefs): String {
-            return settingSharedPrefs.getConfig(NUM_THREADS.name, DEFAULT_NUM_THREADS_VALUE)
-        }
-
-        override fun onDialogContent(
-            settingSharedPrefs: SettingSharedPrefs,
-            itemIndex: Int,
-            closeDialog: (Int, String?) -> Unit
-        ): @Composable () -> Unit {
-            val currentValue =
-                settingSharedPrefs.getConfig(NUM_THREADS.name, DEFAULT_NUM_THREADS_VALUE)
-            return {
-                TextInputDialog(
-                    title = NUM_THREADS.title,
-                    defaultValue = DEFAULT_NUM_THREADS_VALUE,
-                    currentValue = currentValue,
-                    keyboardType = KeyboardType.Number,
-                    itemIndex = itemIndex,
-                    closeDialog = closeDialog
-                )
-            }
-        }
-
-        override fun setDialogResult(settingSharedPrefs: SettingSharedPrefs, result: String) {
-            settingSharedPrefs.setConfig(NUM_THREADS.name, result)
         }
     }),
     ABOUT_INFO(R.string.about_title, R.string.about_desc, object : ISettingData {

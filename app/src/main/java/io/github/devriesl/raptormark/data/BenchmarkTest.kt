@@ -9,7 +9,7 @@ import org.json.JSONObject
 import java.io.File
 
 class BenchmarkTest(
-    val testCase: TestCases,
+    val testCase: TestCase,
     val settingSharedPrefs: SettingSharedPrefs
 ) {
     private val filePath = getRandomFilePath()
@@ -63,7 +63,7 @@ class BenchmarkTest(
         options.put(
             createOption(
                 Constants.IO_DEPTH_OPT_NAME,
-                SettingOptions.IO_DEPTH.dataImpl.getValue(settingSharedPrefs)
+                testCase.ioDepth.toString()
             )
         )
         options.put(
@@ -75,10 +75,10 @@ class BenchmarkTest(
         options.put(
             createOption(
                 Constants.BLOCK_SIZE_OPT_NAME,
-                if (testCase.isFIORand()) {
-                    SettingOptions.RAND_BLOCK_SIZE.dataImpl.getValue(settingSharedPrefs)
-                } else {
+                if (testCase.isSeqRw()) {
                     SettingOptions.SEQ_BLOCK_SIZE.dataImpl.getValue(settingSharedPrefs)
+                } else {
+                    SettingOptions.RAND_BLOCK_SIZE.dataImpl.getValue(settingSharedPrefs)
                 }
             )
         )
@@ -98,9 +98,12 @@ class BenchmarkTest(
         options.put(
             createOption(
                 Constants.NUM_THREADS_OPT_NAME,
-                SettingOptions.NUM_THREADS.dataImpl.getValue(settingSharedPrefs)
+                testCase.numJobs.toString()
             )
         )
+        testCase.rwMixWrite?.let {
+            options.put(createOption(Constants.RW_MIX_WRITE_OPT_NAME, it.toString()))
+        }
 
         options.put(createOption(Constants.ETA_PRINT_OPT_NAME, Constants.CONSTANT_ETA_PRINT_VALUE))
         options.put(
@@ -127,40 +130,50 @@ class BenchmarkTest(
         const val FILE_SUFFIX_LENGTH = 8
 
         @JvmStatic
-        fun parseResult(result: String): TestResult.FIO {
+        fun parseResult(result: String): TestResult? {
             var jobsId: String? = null
-            var jobsRw = String()
             var sumOfBwBytes: Long = 0
-            var sumOf4NClatNs: Long = 0
+            var sumOfRdIoPerSec = 0.0
+            var sumOfWrIoPerSec = 0.0
+            var sumOfAvgClatNs = 0.0
 
             val jsonResult = JSONObject(result)
             val jobsArray = jsonResult.getJSONArray("jobs")
             for (i in 0 until jobsArray.length()) {
                 val jobObject: JSONObject = jobsArray.getJSONObject(i)
-
                 if (jobsId.isNullOrEmpty()) {
                     jobsId = jobObject.getString("jobname")
-                    when {
-                        jobsId.contains("RD") -> {
-                            jobsRw = "read"
-                        }
-                        jobsId.contains("WR") -> {
-                            jobsRw = "write"
-                        }
-                    }
                 }
 
-                val rwObject: JSONObject = jobObject.getJSONObject(jobsRw)
-                sumOfBwBytes += rwObject.getLong("bw_bytes")
-                val clatObject: JSONObject = rwObject.getJSONObject("clat_ns")
-                val percentileObject: JSONObject = clatObject.getJSONObject("percentile")
-                sumOf4NClatNs += percentileObject.getLong("99.990000")
+                val rdObject: JSONObject = jobObject.getJSONObject("read")
+                sumOfBwBytes += rdObject.getLong("bw_bytes")
+                sumOfRdIoPerSec += rdObject.getDouble("iops")
+                val rdClatObject: JSONObject = rdObject.getJSONObject("clat_ns")
+                sumOfAvgClatNs += rdClatObject.getDouble("mean")
+                val wrObject: JSONObject = jobObject.getJSONObject("write")
+                sumOfBwBytes += wrObject.getLong("bw_bytes")
+                sumOfWrIoPerSec += wrObject.getDouble("iops")
+                val wrClatObject: JSONObject = wrObject.getJSONObject("clat_ns")
+                sumOfAvgClatNs += wrClatObject.getDouble("mean")
             }
 
             val sumOfBw = (sumOfBwBytes / 1000 / 1000).toInt()
-            val avgOf4NClat = (sumOf4NClatNs / jobsArray.length() / 1000).toInt()
+            val jobsAvgClat = (sumOfAvgClatNs / jobsArray.length() / 1000).toInt()
 
-            return TestResult.FIO(sumOfBw, avgOf4NClat)
+            return when {
+                jobsId?.contains("SEQ") == true -> {
+                    TestResult.SEQUENCE(sumOfBw)
+                }
+                jobsId?.contains("RAND") == true -> {
+                    TestResult.RANDOM((sumOfRdIoPerSec + sumOfWrIoPerSec).toInt(), jobsAvgClat)
+                }
+                jobsId?.contains("MIX") == true -> {
+                    TestResult.MIX(sumOfRdIoPerSec.toInt(), sumOfWrIoPerSec.toInt(), jobsAvgClat)
+                }
+                else -> {
+                    null
+                }
+            }
         }
     }
 }

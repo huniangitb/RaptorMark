@@ -10,9 +10,9 @@ data class TestRecord(
     @ColumnInfo(name = "test_date") val timestamp: Long
 ) {
     @ColumnInfo(name = "results")
-    var results: Map<TestCases, String> = mapOf()
+    var results: Map<TestCase, String> = mapOf()
 
-    fun setResult(testCase: TestCases, result: String) {
+    fun setResult(testCase: TestCase, result: String) {
         results = results + mapOf(testCase to result)
     }
 

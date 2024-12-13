@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -20,7 +21,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.devriesl.raptormark.R
-import io.github.devriesl.raptormark.data.*
 import io.github.devriesl.raptormark.ui.widget.HideOnScrollNestedScrollConnection
 import io.github.devriesl.raptormark.ui.widget.rememberHideOnScrollState
 import io.github.devriesl.raptormark.viewmodels.BenchmarkViewModel
@@ -59,25 +59,11 @@ fun BenchmarkContent(
                 .nestedScroll(nestedScrollConnection)
                 .fillMaxHeight()
         ) {
-            item {
-                val fioItems = remember(benchmarkViewModel.testItems) {
-                    benchmarkViewModel.testItems.filter { it.testCase.isFIO() }
-                }
-                fioItems.forEachIndexed { index, testItem ->
-                    val testResult = testItem.testResult
-
-                    Column {
-                        FIOTestItem(
-                            title = testItem.testCase.title,
-                            bandwidth = remember(testResult) { (testResult as? TestResult.FIO)?.bandwidth },
-                            showLatency = remember(testItem) { testItem.testCase.isFIORand() },
-                            latency = remember(testResult) { (testResult as? TestResult.FIO)?.latency }
-                        )
-                        if (index != fioItems.lastIndex) {
-                            Divider(modifier = Modifier.padding(horizontal = 32.dp))
-                        }
-                    }
-                }
+            items(benchmarkViewModel.testItems) { testItem ->
+                TestItem(
+                    case = testItem.testCase,
+                    result = testItem.testResult
+                )
             }
         }
 

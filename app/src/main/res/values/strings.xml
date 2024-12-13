@@ -20,7 +20,8 @@
 
     <!-- Benchmark result formats -->
     <string name="sum_of_bw_test_result_format">%1$d MB/s</string>
-    <string name="avg_of_4n_lat_result_format">%1$d μs</string>
+    <string name="avg_of_lat_test_result_format">%1$d μs</string>
+    <string name="sum_of_iops_test_result_format">%1$d IOPS</string>
 
     <!-- History resources -->
     <string name="test_record_date_format">yyyy-MM-dd HH:mm:ss</string>

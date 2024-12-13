@@ -10,14 +10,13 @@ object Constants {
     const val IO_SIZE_OPT_NAME = "size"
     const val IO_ENGINE_OPT_NAME = "ioengine"
     const val NUM_THREADS_OPT_NAME = "numjobs"
+    const val RW_MIX_WRITE_OPT_NAME = "rwmixwrite"
 
-    const val DEFAULT_IO_DEPTH_VALUE = "4"
     const val DEFAULT_RUNTIME_LIMIT_VALUE = "60"
     const val DEFAULT_SEQ_BLOCK_SIZE_VALUE = "1024k"
     const val DEFAULT_RAND_BLOCK_SIZE_VALUE = "4k"
     const val DEFAULT_IO_SIZE_VALUE = "100m"
     const val DEFAULT_IO_ENGINE_VALUE = "libaio"
-    const val DEFAULT_NUM_THREADS_VALUE = "4"
 
     const val DIRECT_IO_OPT_NAME = "direct"
     const val ETA_PRINT_OPT_NAME = "eta"
@@ -30,6 +29,7 @@ object Constants {
     const val IO_TYPE_SEQ_WR_VALUE = "write"
     const val IO_TYPE_RAND_RD_VALUE = "randread"
     const val IO_TYPE_RAND_WR_VALUE = "randwrite"
+    const val IO_TYPE_MIX_RW_VALUE = "randrw"
 
     const val GITHUB_URL = "https://api.github.com/"
 }

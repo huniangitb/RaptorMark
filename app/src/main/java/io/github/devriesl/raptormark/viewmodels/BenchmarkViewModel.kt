@@ -52,7 +52,7 @@ class BenchmarkViewModel @Inject constructor(
     }
 
     private fun updateTestItems(isInitialized: Boolean = true): List<BenchmarkTest> {
-        return TestCases.entries.map { testCase ->
+        return TestCase.entries.map { testCase ->
             if (isInitialized) {
                 testItems.find { it.testCase == testCase }
             } else {
