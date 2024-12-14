@@ -60,7 +60,11 @@ fun TestItem(
                             style = MaterialTheme.typography.labelMedium
                         )
                         Text(
-                            text = stringResource(R.string.avg_of_lat_test_result_format, it.latency),
+                            text = stringResource(R.string.avg_of_lat_test_result_format, it.rdLatency),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                        Text(
+                            text = stringResource(R.string.avg_of_lat_test_result_format, it.wrLatency),
                             style = MaterialTheme.typography.labelSmall
                         )
                     }

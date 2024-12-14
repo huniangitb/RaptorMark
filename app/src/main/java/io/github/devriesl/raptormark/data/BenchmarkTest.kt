@@ -135,7 +135,8 @@ class BenchmarkTest(
             var sumOfBwBytes: Long = 0
             var sumOfRdIoPerSec = 0.0
             var sumOfWrIoPerSec = 0.0
-            var sumOfAvgClatNs = 0.0
+            var sumOfRdAvgClatNs = 0.0
+            var sumOfWrAvgClatNs = 0.0
 
             val jsonResult = JSONObject(result)
             val jobsArray = jsonResult.getJSONArray("jobs")
@@ -149,26 +150,27 @@ class BenchmarkTest(
                 sumOfBwBytes += rdObject.getLong("bw_bytes")
                 sumOfRdIoPerSec += rdObject.getDouble("iops")
                 val rdClatObject: JSONObject = rdObject.getJSONObject("clat_ns")
-                sumOfAvgClatNs += rdClatObject.getDouble("mean")
+                sumOfRdAvgClatNs += rdClatObject.getDouble("mean")
                 val wrObject: JSONObject = jobObject.getJSONObject("write")
                 sumOfBwBytes += wrObject.getLong("bw_bytes")
                 sumOfWrIoPerSec += wrObject.getDouble("iops")
                 val wrClatObject: JSONObject = wrObject.getJSONObject("clat_ns")
-                sumOfAvgClatNs += wrClatObject.getDouble("mean")
+                sumOfWrAvgClatNs += wrClatObject.getDouble("mean")
             }
 
             val sumOfBw = (sumOfBwBytes / 1000 / 1000).toInt()
-            val jobsAvgClat = (sumOfAvgClatNs / jobsArray.length() / 1000).toInt()
+            val jobsRdAvgClat = (sumOfRdAvgClatNs / jobsArray.length() / 1000).toInt()
+            val jobsWrAvgClat = (sumOfWrAvgClatNs / jobsArray.length() / 1000).toInt()
 
             return when {
                 jobsId?.contains("SEQ") == true -> {
                     TestResult.SEQUENCE(sumOfBw)
                 }
                 jobsId?.contains("RAND") == true -> {
-                    TestResult.RANDOM((sumOfRdIoPerSec + sumOfWrIoPerSec).toInt(), jobsAvgClat)
+                    TestResult.RANDOM((sumOfRdIoPerSec + sumOfWrIoPerSec).toInt(), jobsRdAvgClat + jobsWrAvgClat)
                 }
                 jobsId?.contains("MIX") == true -> {
-                    TestResult.MIX(sumOfRdIoPerSec.toInt(), sumOfWrIoPerSec.toInt(), jobsAvgClat)
+                    TestResult.MIX(sumOfRdIoPerSec.toInt(), sumOfWrIoPerSec.toInt(), jobsRdAvgClat, jobsWrAvgClat)
                 }
                 else -> {
                     null

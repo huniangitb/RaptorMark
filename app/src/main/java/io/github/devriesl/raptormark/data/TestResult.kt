@@ -21,7 +21,8 @@ sealed class TestResult {
     class MIX(
         val rdIoPerSec: Int,
         val wrIoPerSec: Int,
-        val latency: Int,
+        val rdLatency: Int,
+        val wrLatency: Int,
     ) : TestResult() {
         override fun calculateScore(): Double {
             return (rdIoPerSec + wrIoPerSec) * 0.5

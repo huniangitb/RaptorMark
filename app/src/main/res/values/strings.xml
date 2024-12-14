@@ -55,6 +55,8 @@
     <string name="about_version_text">Version:</string>
     <string name="about_author_text">Developed by</string>
     <string name="about_author_name">Devries</string>
+    <string name="about_script_text">FIO Script from</string>
+    <string name="about_script_name">HOMOLAB</string>
     <string name="about_author_email">therkduan@gmail.com</string>
     <string name="about_author_weibo">https://weibo.com/2213561393</string>
     <string name="about_author_weibo_uid">2213561393</string>

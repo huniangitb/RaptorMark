@@ -73,7 +73,7 @@ fun BenchmarkContent(
             Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = stringResource(R.string.calculated_scores_result_format, state.score),
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(start = 8.dp).align(Alignment.CenterVertically)
             )
         }

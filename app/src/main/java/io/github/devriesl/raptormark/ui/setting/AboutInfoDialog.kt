@@ -73,6 +73,19 @@ fun AboutInfoDialog(
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = buildAnnotatedString {
+                        append(stringResource(R.string.about_script_text))
+                        append(" ")
+                        withStyle(
+                            style = SpanStyle(fontWeight = FontWeight.SemiBold)
+                        ) {
+                            append(stringResource(R.string.about_script_name))
+                        }
+                    },
+                    modifier = Modifier.normalTextModifier()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = buildAnnotatedString {
                         append(stringResource(R.string.about_author_text))
                         append(" ")
                         withStyle(
