@@ -26,7 +26,10 @@ class BenchmarkViewModel @Inject constructor(
     var testItems: List<BenchmarkTest> = updateTestItems(false)
 
     fun onTestStart() {
-        benchmarkState = benchmarkState.copy(running = true)
+        benchmarkState = benchmarkState.copy(
+            running = true,
+            score = 0
+        )
         val testRecord = TestRecord()
         NativeHandler.postNativeThread {
             testItems.forEach {
@@ -43,7 +46,10 @@ class BenchmarkViewModel @Inject constructor(
                 testRecordRepo.insertTestRecord(testRecord)
             }
             forceStop = false
-            benchmarkState = benchmarkState.copy(running = false)
+            benchmarkState = benchmarkState.copy(
+                running = false,
+                score = testItems.sumOf { it.testCase.weight * (it.testResult?.calculateScore() ?: 0.0) }.toInt()
+            )
         }
     }
 
@@ -63,5 +69,6 @@ class BenchmarkViewModel @Inject constructor(
 }
 
 data class BenchmarkState(
-    val running: Boolean = false
+    val running: Boolean = false,
+    val score: Int = 0
 )

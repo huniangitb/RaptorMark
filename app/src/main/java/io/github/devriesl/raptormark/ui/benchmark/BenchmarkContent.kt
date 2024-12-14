@@ -1,28 +1,27 @@
 package io.github.devriesl.raptormark.ui.benchmark
 
-import androidx.annotation.StringRes
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.updateTransition
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ElevatedButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.devriesl.raptormark.R
-import io.github.devriesl.raptormark.ui.widget.HideOnScrollNestedScrollConnection
-import io.github.devriesl.raptormark.ui.widget.rememberHideOnScrollState
 import io.github.devriesl.raptormark.viewmodels.BenchmarkViewModel
 import kotlinx.coroutines.launch
 
@@ -31,122 +30,55 @@ fun BenchmarkContent(
     benchmarkViewModel: BenchmarkViewModel,
     snackbarHostState: SnackbarHostState
 ) {
-    Box(
-        modifier = Modifier.fillMaxSize()
+    val scrollState = rememberScrollState()
+    val state = benchmarkViewModel.benchmarkState
+    val coroutineScope = rememberCoroutineScope()
+    val tooltipString = stringResource(R.string.stop_click_tooltip)
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 8.dp)
+            .verticalScroll(scrollState)
     ) {
-        val state = benchmarkViewModel.benchmarkState
-
-        val coroutineScope = rememberCoroutineScope()
-        val listState = rememberLazyListState()
-        val hideOnScrollState = rememberHideOnScrollState()
-        val nestedScrollConnection = remember(hideOnScrollState) {
-            HideOnScrollNestedScrollConnection(hideOnScrollState) { true }
-        }
-        var floatingActionButtonHeight by remember {
-            mutableStateOf(0)
-        }
-
-        LazyColumn(
-            state = listState,
-            contentPadding = PaddingValues(
-                top = 8.dp,
-                bottom = with(LocalDensity.current) { floatingActionButtonHeight.toDp() } + 8.dp,
-                start = 16.dp,
-                end = 16.dp
-            ),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier
-                .nestedScroll(nestedScrollConnection)
-                .fillMaxHeight()
-        ) {
-            items(benchmarkViewModel.testItems) { testItem ->
-                TestItem(
-                    case = testItem.testCase,
-                    result = testItem.testResult
-                )
-            }
-        }
-
-        AnimatedVisibility(
-            visibleState = hideOnScrollState.isShow,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .onSizeChanged {
-                    floatingActionButtonHeight = it.height
-                }
-        ) {
-            Box(
-                modifier = Modifier
-                    .padding(top = 8.dp, bottom = 24.dp, start = 24.dp, end = 24.dp)
-            ) {
-                if (state.running) {
-                    val tooltipString = stringResource(R.string.stop_click_tooltip)
-                    ExtendedFloatingActionButton(
-                        text = { Text(stringResource(R.string.stop_button_label)) },
-                        icon = {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_stop_button),
-                                contentDescription = stringResource(R.string.stop_button_desc)
-                            )
-                        },
-                        onClick = {
-                            benchmarkViewModel.onTestStop()
-                            coroutineScope.launch {
-                                snackbarHostState.showSnackbar(tooltipString)
-                            }
+        Row {
+            ElevatedButton(
+                onClick = {
+                    if (state.running) {
+                        benchmarkViewModel.onTestStop()
+                        coroutineScope.launch {
+                            snackbarHostState.showSnackbar(tooltipString)
                         }
-                    )
-                } else {
-                    ExtendedFloatingActionButton(
-                        text = { Text(stringResource(R.string.start_button_label)) },
-                        icon = {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_start_button),
-                                contentDescription = stringResource(R.string.start_button_desc)
-                            )
-                        },
-                        onClick = { benchmarkViewModel.onTestStart() }
-                    )
+                    } else {
+                        benchmarkViewModel.onTestStart()
+                    }
+                }
+            ) {
+                Row {
+                    if (state.running) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_stop_button),
+                            contentDescription = stringResource(R.string.stop_button_desc)
+                        )
+                        Text(stringResource(R.string.stop_button_label))
+                    } else {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_start_button),
+                            contentDescription = stringResource(R.string.start_button_desc)
+                        )
+                        Text(stringResource(R.string.start_button_label))
+                    }
                 }
             }
-        }
-    }
-}
-
-@Composable
-fun ExpandableCard(
-    expanded: Boolean,
-    onExpandedChange: (Boolean) -> Unit,
-    @StringRes title: Int,
-    modifier: Modifier = Modifier,
-    expandedContent: @Composable ColumnScope.() -> Unit
-) {
-    val expandedState = updateTransition(targetState = expanded, "expandedCard")
-    val containerColor = MaterialTheme.colorScheme.surfaceVariant
-    val contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-    Card(modifier = modifier) {
-        ListItem(
-            colors = ListItemDefaults.colors(
-                containerColor = containerColor,
-                headlineColor = contentColor,
-                trailingIconColor = containerColor
-            ),
-            headlineContent = {
-                Text(text = stringResource(id = title))
-            },
-            trailingContent = {
-                Checkbox(checked = expandedState.targetState, onCheckedChange = null)
-            },
-            modifier = Modifier.clickable {
-                onExpandedChange(!expanded)
-            }
-        )
-        AnimatedVisibility(expandedState.targetState) {
-            Column(
-                content = expandedContent
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = stringResource(R.string.calculated_scores_result_format, state.score),
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(start = 8.dp).align(Alignment.CenterVertically)
             )
         }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        TestItemList(benchmarkViewModel.testItems.associate { it.testCase to it.testResult })
     }
 }
