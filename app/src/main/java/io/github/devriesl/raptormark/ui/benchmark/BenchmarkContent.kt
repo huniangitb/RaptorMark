@@ -1,12 +1,13 @@
 package io.github.devriesl.raptormark.ui.benchmark
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ElevatedButton
@@ -41,8 +42,16 @@ fun BenchmarkContent(
             .padding(horizontal = 8.dp)
             .verticalScroll(scrollState)
     ) {
-        Row {
+        Row(
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = stringResource(R.string.calculated_scores_result_format, state.score),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.align(Alignment.CenterVertically).weight(1f)
+            )
             ElevatedButton(
+                modifier = Modifier.wrapContentWidth(),
                 onClick = {
                     if (state.running) {
                         benchmarkViewModel.onTestStop()
@@ -54,7 +63,10 @@ fun BenchmarkContent(
                     }
                 }
             ) {
-                Row {
+                Row(
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     if (state.running) {
                         Icon(
                             painter = painterResource(R.drawable.ic_stop_button),
@@ -70,12 +82,6 @@ fun BenchmarkContent(
                     }
                 }
             }
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = stringResource(R.string.calculated_scores_result_format, state.score),
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(start = 8.dp).align(Alignment.CenterVertically)
-            )
         }
 
         Spacer(modifier = Modifier.height(8.dp))

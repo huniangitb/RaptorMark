@@ -1,13 +1,27 @@
 package io.github.devriesl.raptormark.ui
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.*
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.TabRowDefaults.SecondaryIndicator
+import androidx.compose.material3.TopAppBarScrollBehavior
+import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -22,7 +36,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.debugInspectorInfo
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -38,7 +51,7 @@ fun AppTopTab(
         modifier = modifier
     ) {
         val contentColor = LocalContentColor.current
-        val tabTextWidthList = remember(sections) {
+        val tabWidthList = remember(sections) {
             mutableStateListOf(*Array(sections.size) { 0.dp })
         }
         val density = LocalDensity.current
@@ -60,17 +73,17 @@ fun AppTopTab(
             },
             indicator = {
                 val currentTabPosition = it[selectedIndex]
-                val tabTextWidth = tabTextWidthList[selectedIndex]
-                TabRowDefaults.Indicator(
+                val tabWidth = tabWidthList[selectedIndex]
+                SecondaryIndicator(
                     modifier = Modifier.composed(
                         inspectorInfo = debugInspectorInfo {
                             name = "tabIndicatorOffset"
                             value = it[selectedIndex]
                         }
                     ) {
-                        val widthPadding = (currentTabPosition.width - tabTextWidth) / 2
+                        val widthPadding = (currentTabPosition.width - tabWidth) / 2
                         val currentTabWidth by animateDpAsState(
-                            targetValue = tabTextWidth,
+                            targetValue = tabWidth,
                             animationSpec = tween(
                                 durationMillis = 250,
                                 easing = FastOutSlowInEasing
@@ -96,6 +109,9 @@ fun AppTopTab(
                 Tab(
                     selected = index == selectedIndex,
                     onClick = { setSelectedSection(section) },
+                    modifier = Modifier.onSizeChanged {
+                        tabWidthList[index] = with(density) { it.width.toDp() - 16.dp }
+                    },
                     selectedContentColor = if (index == selectedIndex) {
                         LocalContentColor.current
                     } else {
@@ -104,17 +120,7 @@ fun AppTopTab(
                     icon = {
                         Icon(
                             painter = painterResource(id = section.icon),
-                            contentDescription = stringResource(id = section.title)
-                        )
-                    },
-                    text = {
-                        Text(
-                            text = stringResource(id = section.title),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.onSizeChanged {
-                                tabTextWidthList[index] = with(density) { it.width.toDp() }
-                            }
+                            contentDescription = stringResource(id = section.title),
                         )
                     }
                 )
