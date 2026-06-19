@@ -60,20 +60,9 @@ bool checkEngineAvailability(char *engine) {
             if ((kernelMajorVersion > IO_URING_KERNEL_VERSION_MAJOR) ||
                 (kernelMajorVersion == IO_URING_KERNEL_VERSION_MAJOR &&
                  kernelMinorVersion >= IO_URING_KERNEL_VERSION_MINOR)) {
-                // Try actual io_uring_setup syscall to verify availability
-                if (try_io_uring_setup()) {
-                    available = true;
-                } else {
-                    // io_uring_setup failed, check if root would help
-                    if (checkRootAccess()) {
-                        // Root is available - io_uring can work via su
-                        available = true;
-                        LOGD("io_uring needs root, but root is available");
-                    } else {
-                        LOGD("io_uring not available (no root)");
-                        available = false;
-                    }
-                }
+                // Test io_uring_setup via fork-safe approach
+                // If seccomp blocks it, or permission denied, mark unavailable
+                available = try_io_uring_setup();
             }
             break;
         default:

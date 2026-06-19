@@ -52,11 +52,13 @@ class BenchmarkTest(
     }
 
     private fun runFallbackTest(jsonCommand: String): String? {
-        // Fallback: run in-process (io_uring may fail without root,
-        // but prevents complete test failure when fio_runner not deployed)
-        android.util.Log.w("BenchmarkTest", "fio_runner not available, running in-process")
+        // Fallback: replace io_uring with libaio and run in-process
+        // Prevents crash when fio_runner binary is not deployed
+        val fallbackOptions = jsonCommand.replace("\"io_uring\"", "\"libaio\"")
+        android.util.Log.w("BenchmarkTest", "fio_runner not available, falling back to libaio")
+
         NativeHandler.registerListener(nativeListener)
-        nativeTest(jsonCommand)
+        nativeTest(fallbackOptions)
         NativeHandler.unregisterListener(nativeListener)
 
         val testFile = File(filePath)
