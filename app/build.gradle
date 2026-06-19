@@ -77,6 +77,22 @@ android {
     }
 }
 
+// Copy fio_runner native executable into APK assets for root execution path
+android.applicationVariants.configureEach { variant ->
+    def buildType = variant.buildType.name
+    def fioRunnerTask = tasks.register("copyFioRunner${buildType.capitalize()}", Copy) {
+        from("${project.buildDir}/intermediates/cmake/${buildType}/obj/arm64-v8a/fio_runner") {
+            include 'fio_runner'
+        }
+        into("${project.buildDir}/intermediates/assets/${buildType}/bin")
+        dependsOn variant.externalNativeBuildProviders
+    }
+
+    variant.mergeAssetsProvider.configure {
+        dependsOn fioRunnerTask
+    }
+}
+
 dependencies {
     implementation "androidx.core:core-ktx:1.15.0"
     implementation "androidx.appcompat:appcompat:1.7.0"

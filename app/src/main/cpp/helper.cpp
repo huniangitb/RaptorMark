@@ -1,8 +1,14 @@
+#include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <sys/utsname.h>
+#include <sys/syscall.h>
+#include <sys/wait.h>
+#include <linux/types.h>
 #include <dlfcn.h>
 #include <cJSON.h>
 #include "common.h"
@@ -28,6 +34,10 @@ static void native_init helperInit() {
     getKernelVersion(&kernelMajorVersion, &kernelMinorVersion);
 }
 
+// Forward declarations
+bool try_io_uring_setup(void);
+bool checkRootAccess(void);
+
 static int getKeyFromStr(char *key, strPairStruct *lut, int keyNum) {
     for (int i = 0; i < keyNum; i++) {
         strPairStruct *pair = &lut[i];
@@ -51,7 +61,20 @@ bool checkEngineAvailability(char *engine) {
             if ((kernelMajorVersion > IO_URING_KERNEL_VERSION_MAJOR) ||
                 (kernelMajorVersion == IO_URING_KERNEL_VERSION_MAJOR &&
                  kernelMinorVersion >= IO_URING_KERNEL_VERSION_MINOR)) {
-                available = true;
+                // Try actual io_uring_setup syscall to verify availability
+                if (try_io_uring_setup()) {
+                    available = true;
+                } else {
+                    // io_uring_setup failed, check if root would help
+                    if (checkRootAccess()) {
+                        // Root is available - io_uring can work via su
+                        available = true;
+                        LOGD("io_uring needs root, but root is available");
+                    } else {
+                        LOGD("io_uring not available (no root)");
+                        available = false;
+                    }
+                }
             }
             break;
         default:
@@ -59,6 +82,103 @@ bool checkEngineAvailability(char *engine) {
     }
 
     return available;
+}
+
+bool checkRootAccess() {
+    // Method 1: Check for Magisk specific indicators
+    if (access("/sbin/.magisk", F_OK) == 0 ||
+        access("/debug_ramdisk/.magisk", F_OK) == 0) {
+        LOGD("Root detected: Magisk");
+        return true;
+    }
+
+    // Method 2: Check for KernelSU specific indicators
+    if (access("/dev/kernelsu", F_OK) == 0 ||
+        access("/sys/kernel/security/kernelsu", F_OK) == 0) {
+        LOGD("Root detected: KernelSU");
+        return true;
+    }
+
+    // Method 3: Try executing su with popen to capture actual output
+    // This works for Magisk, KernelSU, APatch, and traditional su
+    const char *suPaths[] = {
+        "/system/bin/su",
+        "/system/xbin/su",
+        "/sbin/su",
+        "/su/bin/su",
+        "/data/adb/magisk/su",
+        "/data/adb/ksu/bin/su",
+        NULL
+    };
+
+    for (int i = 0; suPaths[i] != NULL; i++) {
+        if (access(suPaths[i], X_OK) == 0) {
+            char cmd[256];
+            snprintf(cmd, sizeof(cmd), "%s -c 'id -u' 2>/dev/null", suPaths[i]);
+            FILE *fp = popen(cmd, "r");
+            if (fp) {
+                char buf[32] = {0};
+                if (fgets(buf, sizeof(buf), fp) != NULL) {
+                    // Root user ID is 0
+                    if (atoi(buf) == 0) {
+                        pclose(fp);
+                        LOGD("Root detected via %s", suPaths[i]);
+                        return true;
+                    }
+                }
+                pclose(fp);
+            }
+        }
+    }
+
+    LOGD("Root not detected");
+    return false;
+}
+
+bool try_io_uring_setup(void) {
+    int ret, ring_fd;
+    struct io_uring_params {
+        __u8 sq_entries;
+        __u8 cq_entries;
+        __u32 flags;
+        __u32 sq_thread_cpu;
+        __u32 sq_thread_idle;
+        __u32 features;
+        __u32 wq_fd;
+        __u32 resv[3];
+        struct {
+            __u32 head;
+            __u32 tail;
+            __u32 ring_mask;
+            __u32 ring_entries;
+            __u32 flags;
+            __u32 array;
+            __u32 resv[3];
+        } sq_off;
+        struct {
+            __u32 head;
+            __u32 tail;
+            __u32 ring_mask;
+            __u32 ring_entries;
+            __u32 flags;
+            __u32 cqes;
+            __u32 resv[3];
+        } cq_off;
+    } params;
+
+    memset(&params, 0, sizeof(params));
+    params.flags = 0;
+
+    ret = syscall(IO_URING_SETUP_SYS_NUM, 1, &params);
+    if (ret < 0) {
+        LOGD("io_uring_setup failed, errno=%d (%s)", errno, strerror(errno));
+        return false;
+    }
+
+    ring_fd = ret;
+    close(ring_fd);
+    LOGD("io_uring_setup succeeded");
+    return true;
 }
 
 void json2Options(const char *jsonStr, int *argc, char ***argv) {
@@ -143,6 +263,118 @@ LibFIO::LibFIO(const char *func, void *callback) {
 
 LibFIO::~LibFIO() {
     dlclose(libHandler);
+}
+
+char *runFioWithRoot(const char *jsonConfig, const char *fioRunnerPath) {
+    char tmpFile[512];
+    char resultBuffer[65536];
+    pid_t pid;
+    int pipefd[2];
+    int status;
+    FILE *configFile = NULL;
+
+    // Determine temp directory: use HOME (app's data dir) or /data/local/tmp
+    const char *homeDir = getenv("HOME");
+    if (!homeDir || access(homeDir, W_OK) != 0) {
+        homeDir = "/data/local/tmp";
+    }
+
+    // Create unique temp file path
+    snprintf(tmpFile, sizeof(tmpFile), "%s/fio_config_%d_%d.json",
+             homeDir, getpid(), rand() % 10000);
+
+    // Write JSON config to temp file
+    configFile = fopen(tmpFile, "w");
+    if (!configFile) {
+        LOGE("runFioWithRoot: failed to open config file, errno=%d", errno);
+        unlink(tmpFile);
+        return NULL;
+    }
+    fprintf(configFile, "%s", jsonConfig);
+    fclose(configFile);
+
+    // Create pipe for reading output
+    if (pipe(pipefd) < 0) {
+        LOGE("runFioWithRoot: pipe failed, errno=%d", errno);
+        unlink(tmpFile);
+        return NULL;
+    }
+
+    pid = fork();
+    if (pid < 0) {
+        LOGE("runFioWithRoot: fork failed, errno=%d", errno);
+        close(pipefd[0]);
+        close(pipefd[1]);
+        unlink(tmpFile);
+        return NULL;
+    }
+
+    if (pid == 0) {
+        // Child process - run via su
+        close(pipefd[0]);  // close read end
+        dup2(pipefd[1], STDOUT_FILENO);  // redirect stdout to pipe
+        dup2(pipefd[1], STDERR_FILENO);  // redirect stderr to pipe
+        close(pipefd[1]);
+
+        // Build the command for su: set LD_LIBRARY_PATH and run fio_runner
+        char cmd[2048];
+        // LD_LIBRARY_PATH must include the app's native lib dir for dlopen(libfio.so)
+        const char *nativeLibDir = getenv("LD_LIBRARY_PATH");
+        if (nativeLibDir) {
+            snprintf(cmd, sizeof(cmd),
+                     "LD_LIBRARY_PATH=%s %s --json-config=%s",
+                     nativeLibDir, fioRunnerPath, tmpFile);
+        } else {
+            snprintf(cmd, sizeof(cmd),
+                     "%s --json-config=%s",
+                     fioRunnerPath, tmpFile);
+        }
+
+        // Exec su -c to run fio_runner as root
+        execlp("su", "su", "-c", cmd, NULL);
+
+        // Also try with specific paths for Magisk/KernelSU
+        execl("/system/bin/su", "su", "-c", cmd, NULL);
+        execl("/system/xbin/su", "su", "-c", cmd, NULL);
+        execl("/sbin/su", "su", "-c", cmd, NULL);
+
+        // If exec fails
+        _exit(127);
+    }
+
+    // Parent process - read output
+    close(pipefd[1]);  // close write end
+
+    memset(resultBuffer, 0, sizeof(resultBuffer));
+    ssize_t totalRead = 0;
+    ssize_t n;
+
+    while ((n = read(pipefd[0], resultBuffer + totalRead,
+                     sizeof(resultBuffer) - totalRead - 1)) > 0) {
+        totalRead += n;
+    }
+
+    close(pipefd[0]);
+
+    // Wait for child to complete
+    waitpid(pid, &status, 0);
+
+    // Clean up temp file
+    unlink(tmpFile);
+
+    if (totalRead == 0) {
+        LOGE("runFioWithRoot: no output from fio_runner (status=%d)", status);
+        return NULL;
+    }
+
+    // Allocate and return result
+    char *result = (char *) calloc(totalRead + 1, sizeof(char));
+    if (result) {
+        memcpy(result, resultBuffer, totalRead);
+        result[totalRead] = '\0';
+    }
+
+    return result;
 }
 
 #endif

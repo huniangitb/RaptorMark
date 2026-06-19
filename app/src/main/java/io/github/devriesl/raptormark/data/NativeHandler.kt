@@ -14,6 +14,10 @@ object NativeHandler {
 
     external fun native_FIOTest(jsonCommand: String): Int
     external fun native_ListEngines(): String
+    external fun native_CheckRootAccess(): Boolean
+    external fun native_RunFIOTestWithRoot(jsonCommand: String, runnerPath: String): String?
+
+    private var fioRunnerPath: String = ""
 
     init {
         System.loadLibrary("raptormark-jni")
@@ -22,6 +26,12 @@ object NativeHandler {
         nativeThread.start()
         nativeHandler = Handler(nativeThread.looper)
     }
+
+    fun setFioRunnerPath(path: String) {
+        fioRunnerPath = path
+    }
+
+    fun getFioRunnerPath(): String = fioRunnerPath
 
     fun postNativeThread(block: () -> Unit) {
         nativeHandler.post { block() }
@@ -43,4 +53,5 @@ object NativeHandler {
         }
         return msg.length
     }
+
 }

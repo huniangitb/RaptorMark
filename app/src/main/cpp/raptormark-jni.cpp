@@ -73,7 +73,37 @@ JNIEXPORT jstring JNICALL native_ListEngines(JNIEnv *env, jobject instance) {
         LOGE("Could not find IO engine.");
     }
 
+    cJSON *meta = cJSON_AddObjectToObject(root, "meta");
+    bool rootAccess = checkRootAccess();
+    bool ioUringDirect = try_io_uring_setup();
+    cJSON_AddBoolToObject(meta, "rootAvailable", rootAccess);
+    cJSON_AddBoolToObject(meta, "ioUringDirectAccess", ioUringDirect);
+
     return env->NewStringUTF(cJSON_PrintUnformatted(root));
+}
+
+JNIEXPORT jboolean JNICALL native_CheckRootAccess(JNIEnv *env, jobject instance) {
+    return checkRootAccess() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jstring JNICALL native_RunFIOTestWithRoot(JNIEnv *env, jobject instance,
+                                                      jstring jsonCommand,
+                                                      jstring runnerPath) {
+    const char *jsonStr = env->GetStringUTFChars(jsonCommand, NULL);
+    const char *runnerPathStr = env->GetStringUTFChars(runnerPath, NULL);
+
+    char *result = runFioWithRoot(jsonStr, runnerPathStr);
+
+    env->ReleaseStringUTFChars(jsonCommand, jsonStr);
+    env->ReleaseStringUTFChars(runnerPath, runnerPathStr);
+
+    if (result == NULL) {
+        return NULL;
+    }
+
+    jstring jResult = env->NewStringUTF(result);
+    free(result);
+    return jResult;
 }
 
 #ifdef __cplusplus
@@ -81,8 +111,11 @@ JNIEXPORT jstring JNICALL native_ListEngines(JNIEnv *env, jobject instance) {
 #endif
 
 static const JNINativeMethod FIOMethods[] = {
-        {"native_FIOTest",       "(Ljava/lang/String;)I", (void *) native_FIOTest},
-        {"native_ListEngines",   "()Ljava/lang/String;",  (void *) native_ListEngines}
+        {"native_FIOTest",           "(Ljava/lang/String;)I",          (void *) native_FIOTest},
+        {"native_ListEngines",       "()Ljava/lang/String;",           (void *) native_ListEngines},
+        {"native_CheckRootAccess",   "()Z",                            (void *) native_CheckRootAccess},
+        {"native_RunFIOTestWithRoot","(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+                                                                       (void *) native_RunFIOTestWithRoot}
 };
 
 JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved) {

@@ -30,12 +30,47 @@ class BenchmarkTest(
         return NativeHandler.native_FIOTest(jsonCommand)
     }
 
+    private fun isIoUringEngine(jsonCommand: String): Boolean {
+        return jsonCommand.contains("io_uring")
+    }
+
+    private fun runTestWithRoot(jsonCommand: String): String? {
+        val runnerPath = NativeHandler.getFioRunnerPath()
+        if (runnerPath.isEmpty()) {
+            return null
+        }
+
+        NativeHandler.registerListener(nativeListener)
+        val result = NativeHandler.native_RunFIOTestWithRoot(jsonCommand, runnerPath)
+        if (result != null) {
+            // Parse and distribute the final result
+            nativeListener.onTestResult(result)
+        }
+        NativeHandler.unregisterListener(nativeListener)
+
+        return nativeResult
+    }
+
     fun runTest(): String? {
         nativeResult = null
 
-        NativeHandler.registerListener(nativeListener)
         val options = testOptionsBuilder()
-        val ret = nativeTest(options)
+
+        // Check if io_uring engine is selected
+        if (isIoUringEngine(options)) {
+            if (NativeHandler.native_CheckRootAccess()) {
+                // Root available - run via su for proper io_uring access
+                return runTestWithRoot(options)
+            } else {
+                // io_uring selected but no root - return error to prevent crash
+                nativeResult = """{"jobs":[{"jobname":"${testCase.name}","error":"io_uring requires root access"}]}"""
+                return nativeResult
+            }
+        }
+
+        // Normal in-process execution
+        NativeHandler.registerListener(nativeListener)
+        nativeTest(options)
         NativeHandler.unregisterListener(nativeListener)
 
         val testFile = File(filePath)

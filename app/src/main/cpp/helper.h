@@ -13,6 +13,12 @@ extern "C" {
 
 #define ARGV_OPTION_MAX_LENGTH 256
 
+#define IO_URING_SETUP_SYS_NUM 425
+
+#define ROOT_ACCESS_OK 0
+#define ROOT_ACCESS_NO_SU 1
+#define ROOT_ACCESS_SU_FAILED 2
+
 typedef struct {
     const char *key;
     int val;
@@ -34,6 +40,9 @@ static strPairStruct engineLut[] = {
 };
 
 bool checkEngineAvailability(char *engine);
+bool checkRootAccess();
+bool try_io_uring_setup(void);
+char *runFioWithRoot(const char *jsonConfig, const char *fioRunnerPath);
 void json2Options(const char *jsonStr, int *argc, char ***argv);
 void freeOptions(int *argc, char ***argv);
 
