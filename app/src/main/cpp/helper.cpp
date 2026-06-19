@@ -8,7 +8,6 @@
 #include <sys/utsname.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
-#include <linux/types.h>
 #include <dlfcn.h>
 #include <cJSON.h>
 #include "common.h"
@@ -136,49 +135,115 @@ bool checkRootAccess() {
 }
 
 bool try_io_uring_setup(void) {
-    int ret, ring_fd;
-    struct io_uring_params {
-        __u8 sq_entries;
-        __u8 cq_entries;
-        __u32 flags;
-        __u32 sq_thread_cpu;
-        __u32 sq_thread_idle;
-        __u32 features;
-        __u32 wq_fd;
-        __u32 resv[3];
-        struct {
-            __u32 head;
-            __u32 tail;
-            __u32 ring_mask;
-            __u32 ring_entries;
-            __u32 flags;
-            __u32 array;
-            __u32 resv[3];
-        } sq_off;
-        struct {
-            __u32 head;
-            __u32 tail;
-            __u32 ring_mask;
-            __u32 ring_entries;
-            __u32 flags;
-            __u32 cqes;
-            __u32 resv[3];
-        } cq_off;
-    } params;
+    pid_t pid;
+    int status;
+    int pipefd[2];
+    char result = 0;
 
-    memset(&params, 0, sizeof(params));
-    params.flags = 0;
-
-    ret = syscall(IO_URING_SETUP_SYS_NUM, 1, &params);
-    if (ret < 0) {
-        LOGD("io_uring_setup failed, errno=%d (%s)", errno, strerror(errno));
+    // Use fork to safely test syscall - avoids seccomp SIGSYS killing the process
+    if (pipe(pipefd) < 0) {
+        LOGD("try_io_uring: pipe failed");
         return false;
     }
 
-    ring_fd = ret;
-    close(ring_fd);
-    LOGD("io_uring_setup succeeded");
-    return true;
+    pid = fork();
+    if (pid < 0) {
+        LOGD("try_io_uring: fork failed");
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return false;
+    }
+
+    if (pid == 0) {
+        // Child process - test io_uring_setup syscall
+        // Use standard types to avoid kernel header dependency
+        struct {
+            unsigned char sq_entries;
+            unsigned char cq_entries;
+            unsigned int flags;
+            unsigned int sq_thread_cpu;
+            unsigned int sq_thread_idle;
+            unsigned int features;
+            unsigned int wq_fd;
+            unsigned int resv[3];
+            struct {
+                unsigned int head;
+                unsigned int tail;
+                unsigned int ring_mask;
+                unsigned int ring_entries;
+                unsigned int flags;
+                unsigned int array;
+                unsigned int resv[3];
+            } sq_off;
+            struct {
+                unsigned int head;
+                unsigned int tail;
+                unsigned int ring_mask;
+                unsigned int ring_entries;
+                unsigned int flags;
+                unsigned int cqes;
+                unsigned int resv[3];
+            } cq_off;
+        } params;
+
+        // Close read end, keep write end
+        close(pipefd[0]);
+
+        memset(&params, 0, sizeof(params));
+
+        int ret = syscall(IO_URING_SETUP_SYS_NUM, 1, &params);
+        if (ret >= 0) {
+            close(ret);  // close the ring fd
+            result = 1;  // success
+        } else {
+            LOGD("try_io_uring: syscall failed, errno=%d", errno);
+            // errno contains the reason (EPERM, ENOSYS, etc.)
+            result = (errno == EPERM || errno == EACCES) ? 2 : 0;
+        }
+
+        // Write result to pipe
+        write(pipefd[1], &result, 1);
+        close(pipefd[1]);
+        _exit(0);
+    }
+
+    // Parent process - wait for child
+    close(pipefd[1]);  // close write end
+
+    // Read result from child before waiting (avoids SIGCHLD races)
+    ssize_t n = read(pipefd[0], &result, 1);
+    close(pipefd[0]);
+
+    // Wait for child and check if it was killed by seccomp
+    waitpid(pid, &status, 0);
+
+    if (WIFSIGNALED(status)) {
+        int sig = WTERMSIG(status);
+        if (sig == SIGSYS) {
+            // seccomp blocked the syscall - it's definitely not available
+            LOGD("try_io_uring: seccomp blocked syscall 425 (SIGSYS)");
+            return false;
+        }
+        LOGD("try_io_uring: child killed by signal %d", sig);
+        return false;
+    }
+
+    if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
+        LOGD("try_io_uring: child exited with %d", WEXITSTATUS(status));
+        return false;
+    }
+
+    // Read successful result from pipe
+    if (n == 1 && result == 1) {
+        LOGD("try_io_uring: available (syscall succeeded)");
+        return true;
+    } else if (n == 1 && result == 2) {
+        LOGD("try_io_uring: blocked (permission denied)");
+    } else {
+        LOGD("try_io_uring: not available (result=%d)", result);
+    }
+
+    return false;
 }
 
 void json2Options(const char *jsonStr, int *argc, char ***argv) {
