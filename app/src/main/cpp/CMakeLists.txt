@@ -12,6 +12,9 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 
 target_link_libraries(raptormark-jni cjson log)
 
+# Ensure fio_runner is built alongside the main library
+add_dependencies(raptormark-jni fio_runner)
+
 # fio_runner: standalone executable for running fio with root privileges
 # Links against the same fio library and cJSON for JSON config parsing
 add_executable(fio_runner fio_runner.c)

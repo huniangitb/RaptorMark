@@ -60,9 +60,13 @@ bool checkEngineAvailability(char *engine) {
             if ((kernelMajorVersion > IO_URING_KERNEL_VERSION_MAJOR) ||
                 (kernelMajorVersion == IO_URING_KERNEL_VERSION_MAJOR &&
                  kernelMinorVersion >= IO_URING_KERNEL_VERSION_MINOR)) {
-                // Test io_uring_setup via fork-safe approach
-                // If seccomp blocks it, or permission denied, mark unavailable
-                available = try_io_uring_setup();
+                if (try_io_uring_setup()) {
+                    available = true;
+                } else if (checkRootAccess()) {
+                    // Root available - io_uring works via su
+                    available = true;
+                    LOGD("io_uring available via root");
+                }
             }
             break;
         default:
