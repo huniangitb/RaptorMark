@@ -71,18 +71,24 @@ kotlin {
 }
 
 // Copy fio_runner native executable into APK assets for root execution path
-android.applicationVariants.configureEach { variant ->
-    def buildType = variant.buildType.name
-    def fioRunnerTask = tasks.register("copyFioRunner${buildType.capitalize()}", Copy) {
-        from("${project.buildDir}/intermediates/cmake/${buildType}/obj/arm64-v8a/fio_runner") {
-            include 'fio_runner'
+tasks.register('copyFioRunner') {
+    dependsOn tasks.matching { it.name.contains("ExternalNativeBuild") || it.name.contains("CMake") }
+    doLast {
+        fileTree(dir: "${buildDir}/intermediates/cmake", include: "*/obj/arm64-v8a/fio_runner").each { f ->
+            def buildType = f.parentFile.parentFile.parentFile.name
+            def destDir = file("${buildDir}/intermediates/assets/${buildType}/bin")
+            destDir.mkdirs()
+            copy {
+                from f
+                into destDir
+            }
         }
-        into("${project.buildDir}/intermediates/assets/${buildType}/bin")
-        dependsOn variant.externalNativeBuildProviders
     }
+}
 
-    variant.mergeAssetsProvider.configure {
-        dependsOn fioRunnerTask
+afterEvaluate {
+    tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }.configureEach {
+        dependsOn "copyFioRunner"
     }
 }
 
