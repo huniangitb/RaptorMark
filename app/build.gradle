@@ -74,13 +74,23 @@ kotlin {
 tasks.register('copyFioRunner') {
     dependsOn tasks.matching { it.name.contains("ExternalNativeBuild") || it.name.contains("CMake") }
     doLast {
-        fileTree(dir: "${buildDir}/intermediates/cmake", include: "*/obj/arm64-v8a/fio_runner").each { f ->
-            def buildType = f.parentFile.parentFile.parentFile.name
-            def destDir = file("${buildDir}/intermediates/assets/${buildType}/bin")
-            destDir.mkdirs()
-            copy {
-                from f
-                into destDir
+        // Search for fio_runner in CMake output directories (both intermediates and .cxx)
+        def searchDirs = [
+            "${buildDir}/intermediates/cmake",
+            "${projectDir}/.cxx"
+        ]
+        searchDirs.each { dir ->
+            fileTree(dir: dir, include: "**/fio_runner").each { f ->
+                def buildType = "release"
+                if (f.absolutePath.contains("relwithdebinfo")) buildType = "release"
+                else if (f.absolutePath.contains("debug")) buildType = "debug"
+                def destDir = file("${buildDir}/intermediates/assets/${buildType}/bin")
+                destDir.mkdirs()
+                copy {
+                    from f
+                    into destDir
+                }
+                logger.info("fio_runner copied from {} to {}", f, destDir)
             }
         }
     }
@@ -118,7 +128,7 @@ dependencies {
     implementation "androidx.compose.ui:ui"
     implementation "androidx.compose.material3:material3"
     implementation "androidx.compose.material3:material3-window-size-class"
-    implementation "androidx.compose.material:material-icons-extended"
+    // material-icons not needed - using custom vector drawable
     // Compose integration with activities
     implementation "androidx.activity:activity-compose:1.9.3"
     // Integration with ViewModels

@@ -8,9 +8,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material3.Icon
+import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -66,7 +65,7 @@ fun RecordItem(
             }
             val rotate by animateFloatAsState(targetValue = if (expandState) 180f else 0f)
             Icon(
-                imageVector = Icons.Outlined.KeyboardArrowDown,
+                painter = painterResource(R.drawable.ic_keyboard_arrow_down),
                 tint = LocalContentColor.current.copy(0.6f),
                 contentDescription = null,
                 modifier = Modifier.graphicsLayer {

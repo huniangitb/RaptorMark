@@ -51,6 +51,20 @@ class BenchmarkTest(
         return nativeResult
     }
 
+    private fun runFallbackTest(jsonCommand: String): String? {
+        // Fallback: run in-process (io_uring may fail without root,
+        // but prevents complete test failure when fio_runner not deployed)
+        android.util.Log.w("BenchmarkTest", "fio_runner not available, running in-process")
+        NativeHandler.registerListener(nativeListener)
+        nativeTest(jsonCommand)
+        NativeHandler.unregisterListener(nativeListener)
+
+        val testFile = File(filePath)
+        if (testFile.exists()) testFile.delete()
+
+        return nativeResult
+    }
+
     fun runTest(): String? {
         nativeResult = null
 
@@ -59,8 +73,13 @@ class BenchmarkTest(
         // Check if io_uring engine is selected
         if (isIoUringEngine(options)) {
             if (NativeHandler.native_CheckRootAccess()) {
-                // Root available - run via su for proper io_uring access
-                return runTestWithRoot(options)
+                // Root available - try running via su for proper io_uring access
+                val rootResult = runTestWithRoot(options)
+                if (rootResult != null) {
+                    return rootResult
+                }
+                // fio_runner not deployed - fall back to in-process
+                return runFallbackTest(options)
             } else {
                 // io_uring selected but no root - return error to prevent crash
                 nativeResult = """{"jobs":[{"jobname":"${testCase.name}","error":"io_uring requires root access"}]}"""
