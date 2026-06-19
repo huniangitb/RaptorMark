@@ -58,16 +58,16 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
-    }
-
     buildFeatures {
         compose true
         buildConfig true
     }
 
     // Compose compiler is built into Kotlin 2.4.0+
+}
+
+kotlin {
+    jvmToolchain(17)
 }
 
 // Copy fio_runner native executable into APK assets for root execution path
